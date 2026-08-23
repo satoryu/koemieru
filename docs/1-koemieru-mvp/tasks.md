@@ -35,12 +35,14 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [x] `public/pcm-worklet.js`（WXTにworklet専用エントリポイントがないため静的アセットとして配置）を`ctx.audioWorklet.addModule()`で読み込み、`source`から分岐した`AudioWorkletNode`でFloat32フレームをメインスレッドへ送る配線を追加。ワークレット内で約85ms（4096フレーム）単位にバッチしてpostMessageの頻度を抑えている
   - [x] `lib/audio/pcm.ts`への実際の変換とWebSocket送信はタスク8で配線予定。現時点ではチャンク数をカウントしログ出力するのみ
   - [ ] 手動確認（ログでケイデンスと再生への影響がないことを確認）は、タスク8〜9完了後の一括確認ラウンドに合わせて実施
-- [ ] **8. OpenAI Realtime WebSocket接続**
-  - [ ] このステップを書く直前に、`developers.openai.com`で現行の文字起こしセッション設定JSONとイベント名を再検証する
-  - [ ] フェイクのWebSocketに対して`lib/openai/realtimeSession.ts`のペイロード生成をTDDで実装
-  - [ ] オフスクリーンドキュメントに配線: 接続を開き、セッション設定を送信し、`input_audio_buffer.append`でチャンクをストリーミング
-  - [ ] `wxt.config.ts`: `host_permissions: ["https://api.openai.com/*"]`を追加
-  - [ ] 手動確認: 有効なキーで接続が確立し音声再生中も維持される。無効なキーで「OpenAIがハンドシェイクを拒否する」失敗経路が発生し、明確に表示されることを確認
+- [x] **8. OpenAI Realtime WebSocket接続**
+  - [x] `developers.openai.com`（realtime-transcription、realtime-vad）で文字起こしセッション設定JSON・VAD設定・イベント名を再検証（`session.update`型`transcription`、`gpt-live-transcribe`、`input_audio_buffer.append`、`conversation.item.input_audio_transcription.delta`/`.completed`、`item_id`フィールド、`server_vad`の形状を確認済み）
+  - [x] フェイクのWebSocketに対して`lib/openai/realtimeSession.ts`のペイロード生成・イベントルーティングをTDDで実装
+  - [x] オフスクリーンドキュメントに配線: `CAPTURE_STARTED`後に接続を開き、セッション設定を送信し、AudioWorkletタップからのチャンクを`lib/audio/pcm.ts`で変換して`input_audio_buffer.append`でストリーミング
+  - [x] 予期しない切断時の状態遷移: `isCapturing`フラグで意図的な`stopCapture()`と予期しない切断を区別し、後者はリソースを解放した上で`WS_CLOSED`をブロードキャスト（`background.ts`はこれもセッション終了として扱う）
+  - [x] `wxt.config.ts`: `host_permissions: ["https://api.openai.com/*"]`を追加
+  - [x] `sidepanel/main.ts`: `WS_CONNECTING`/`WS_OPEN`/`WS_CLOSED`のステータス表示を追加
+  - [ ] 手動確認（有効なキーでの接続維持、無効なキーでの拒否パス）は、タスク9完了後の一括確認ラウンドに合わせて実施
 - [ ] **9. 文字起こしの描画**
   - [ ] `lib/transcript/transcriptStore.ts`をTDDで実装（同一itemに対するdelta→final、順不同での到着、空のdelta、重複しないこと）
   - [ ] `TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`を描画に接続し、スクロールして離れていない限り自動追従

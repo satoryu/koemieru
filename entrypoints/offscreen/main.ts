@@ -1,6 +1,9 @@
 import { browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
 import type { CaptureFailureReason, KoemieruMessage } from '@/lib/messaging/protocol';
+import { downmixToMono, float32ToInt16PCM, int16ToBase64, resample } from '@/lib/audio/pcm';
+import { connectRealtimeSession } from '@/lib/openai/realtimeSession';
+import type { RealtimeSession } from '@/lib/openai/realtimeSession';
 
 // Chrome's tab-capture constraint shape is a non-standard, Chrome-only
 // extension to MediaStreamConstraints (the `mandatory`/`chromeMediaSource`
@@ -17,10 +20,12 @@ interface TabCaptureConstraints {
 
 const PCM_WORKLET_URL = '/pcm-worklet.js';
 const PCM_WORKLET_PROCESSOR_NAME = 'pcm-capture-processor';
+const OPENAI_INPUT_SAMPLE_RATE = 24000;
 
 let activeStream: MediaStream | undefined;
 let audioContext: AudioContext | undefined;
 let pcmWorkletNode: AudioWorkletNode | undefined;
+let realtimeSession: RealtimeSession | undefined;
 let isCapturing = false;
 let pcmChunkCount = 0;
 
@@ -36,7 +41,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return undefined;
 
     case 'START_CAPTURE':
-      void startCapture(message.streamId);
+      void startCapture(message.streamId, message.apiKey);
       return undefined;
 
     case 'STOP_CAPTURE':
@@ -48,7 +53,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function startCapture(streamId: string): Promise<void> {
+async function startCapture(streamId: string, apiKey: string): Promise<void> {
   console.log('[offscreen] startCapture', { streamId });
 
   if (isCapturing) {
@@ -76,6 +81,41 @@ async function startCapture(streamId: string): Promise<void> {
     const source = ctx.createMediaStreamSource(stream);
     source.connect(ctx.destination);
 
+    activeStream = stream;
+    audioContext = ctx;
+    isCapturing = true;
+
+    console.log('[offscreen] capture started successfully');
+    await broadcast({ type: 'CAPTURE_STARTED' });
+
+    // Connect to OpenAI before wiring the PCM tap, so sendAudioChunk has
+    // somewhere to send to as soon as chunks start arriving.
+    await broadcast({ type: 'WS_CONNECTING' });
+    realtimeSession = connectRealtimeSession(apiKey, {
+      onOpen: () => {
+        console.log('[offscreen] realtime session open');
+        void broadcast({ type: 'WS_OPEN' });
+      },
+      onDelta: (itemId, delta) => {
+        void broadcast({ type: 'TRANSCRIPT_DELTA', itemId, delta });
+      },
+      onFinal: (itemId, transcript) => {
+        void broadcast({ type: 'TRANSCRIPT_FINAL', itemId, transcript });
+      },
+      onError: (error) => {
+        // WebSocket error events carry no diagnostic detail by design (a
+        // web-platform privacy restriction) — the browser always follows
+        // this with a close event, which is where teardown+status happen.
+        console.error('[offscreen] realtime session error', error);
+      },
+      onClose: (code, reason) => {
+        console.log('[offscreen] realtime session closed', { code, reason });
+        if (!isCapturing) return; // already torn down via a deliberate stopCapture()
+        teardownAudioResources();
+        void broadcast({ type: 'WS_CLOSED', code, reason });
+      },
+    });
+
     // Processing tap: a second branch off the same source, feeding raw
     // Float32 frames to the main thread via pcm-worklet.js. Its output is
     // never connected onward — only its port messages are used — so it
@@ -86,23 +126,19 @@ async function startCapture(streamId: string): Promise<void> {
     pcmChunkCount = 0;
     workletNode.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
       pcmChunkCount++;
-      // Conversion (lib/audio/pcm.ts) and streaming to OpenAI are wired in
-      // Task 8 — for now just confirm a steady cadence without flooding
-      // the console (one line/sec at the worklet's ~85ms batch size).
       if (pcmChunkCount % 12 === 1) {
         console.log('[offscreen] pcm chunk', pcmChunkCount, 'frames', event.data[0]?.length);
       }
+
+      const mono = downmixToMono(event.data);
+      const resampled = resample(mono, ctx.sampleRate, OPENAI_INPUT_SAMPLE_RATE);
+      const pcm16 = float32ToInt16PCM(resampled);
+      realtimeSession?.sendAudioChunk(int16ToBase64(pcm16));
     };
-
-    activeStream = stream;
-    audioContext = ctx;
     pcmWorkletNode = workletNode;
-    isCapturing = true;
-
-    console.log('[offscreen] capture started successfully');
-    await broadcast({ type: 'CAPTURE_STARTED' });
   } catch (error) {
-    console.error('[offscreen] getUserMedia failed', error);
+    console.error('[offscreen] failed to start capture', error);
+    teardownAudioResources();
     await broadcast({
       type: 'CAPTURE_FAILED',
       reason: classifyGetUserMediaError(error),
@@ -112,6 +148,14 @@ async function startCapture(streamId: string): Promise<void> {
 }
 
 async function stopCapture(): Promise<void> {
+  realtimeSession?.close();
+  teardownAudioResources();
+  await broadcast({ type: 'CAPTURE_STOPPED' });
+}
+
+/** Releases every resource startCapture() may have acquired. Safe to call
+ * even if some of them were never set up (e.g. failed partway through). */
+function teardownAudioResources(): void {
   if (pcmWorkletNode) {
     pcmWorkletNode.port.onmessage = null;
     pcmWorkletNode.disconnect();
@@ -119,15 +163,14 @@ async function stopCapture(): Promise<void> {
   }
 
   if (audioContext) {
-    await audioContext.close().catch((error) => console.error('Failed to close AudioContext', error));
+    audioContext.close().catch((error) => console.error('Failed to close AudioContext', error));
     audioContext = undefined;
   }
 
   activeStream?.getTracks().forEach((track) => track.stop());
   activeStream = undefined;
+  realtimeSession = undefined;
   isCapturing = false;
-
-  await broadcast({ type: 'CAPTURE_STOPPED' });
 }
 
 function classifyGetUserMediaError(error: unknown): CaptureFailureReason {

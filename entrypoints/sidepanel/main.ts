@@ -73,7 +73,18 @@ browser.runtime.onMessage.addListener((message) => {
   switch (message.type) {
     case 'CAPTURE_STARTED':
       setUiState('active');
-      setStatus('Capturing tab audio…');
+      setStatus('Capturing tab audio… connecting to OpenAI…');
+      break;
+
+    case 'WS_OPEN':
+      setStatus('Capturing tab audio… transcribing…');
+      break;
+
+    case 'WS_CLOSED':
+      setUiState('idle');
+      setStatus(
+        `Connection to OpenAI closed${message.reason ? `: ${message.reason}` : ''}. Click the icon to start again.`,
+      );
       break;
 
     case 'CAPTURE_FAILED':
@@ -91,6 +102,8 @@ browser.runtime.onMessage.addListener((message) => {
       setStatus('The captured tab was closed.');
       break;
 
+    // TRANSCRIPT_DELTA/TRANSCRIPT_FINAL rendering is added once
+    // lib/transcript/transcriptStore.ts exists (see docs/1-koemieru-mvp/tasks.md).
     default:
       break;
   }

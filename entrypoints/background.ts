@@ -102,6 +102,10 @@ export default defineBackground(() => {
 
       case 'CAPTURE_FAILED':
       case 'CAPTURE_STOPPED':
+      case 'WS_CLOSED':
+        // WS_CLOSED means the offscreen document already tore its own
+        // resources down (see its onClose handler) after an unexpected
+        // OpenAI connection drop — treat it as a session end here too.
         capturedTabId = undefined;
         closeOffscreenDocument();
         return undefined;

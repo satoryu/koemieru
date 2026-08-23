@@ -19,5 +19,8 @@ export default defineConfig({
     // panel) — without this, getMediaStreamId() rejects with "Extension has
     // not been invoked for the current page".
     permissions: ['storage', 'tabCapture', 'offscreen', 'activeTab'],
+    // Outbound WebSocket connection to OpenAI's Realtime API
+    // (entrypoints/offscreen/main.ts, lib/openai/realtimeSession.ts).
+    host_permissions: ['https://api.openai.com/*'],
   },
 });
