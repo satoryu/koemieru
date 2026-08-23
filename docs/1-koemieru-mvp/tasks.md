@@ -42,12 +42,23 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [x] 予期しない切断時の状態遷移: `isCapturing`フラグで意図的な`stopCapture()`と予期しない切断を区別し、後者はリソースを解放した上で`WS_CLOSED`をブロードキャスト（`background.ts`はこれもセッション終了として扱う）
   - [x] `wxt.config.ts`: `host_permissions: ["https://api.openai.com/*"]`を追加
   - [x] `sidepanel/main.ts`: `WS_CONNECTING`/`WS_OPEN`/`WS_CLOSED`のステータス表示を追加
-  - [ ] 手動確認（有効なキーでの接続維持、無効なキーでの拒否パス）は、タスク9完了後の一括確認ラウンドに合わせて実施
+  - [x] **手動確認（コア動作）**: 実際のOpenAI APIキーでWebSocket接続が確立し、`session.update`が受理され、音声チャンクの送信・約2秒ごとの`input_audio_buffer.commit`を経て文字起こしが実際に返ってくることを確認済み
+  - [x] **実装時に判明した追加修正**（いずれも実機テストで発見、公式ドキュメントに記載なし/誤りがあった）:
+    - `?model=<文字起こしモデル>`はWebSocket接続URLでは`invalid_model`エラーになる。未文書化の`?intent=transcription`パラメータが正しい接続方法（コミュニティ報告ベース）
+    - `sendAudioChunk`がWebSocketの`CONNECTING`状態中に呼ばれ`InvalidStateError`が発生 → `onopen`発火まで送信をガードするよう修正
+    - このモデルは`turn_detection`（サーバー側VAD）自体をサポートしておらず、`turn_detection: null`にした上で`input_audio_buffer.commit`を手動送信する方式に変更（約2秒間隔）
+  - [ ] 無効なAPIキーでの拒否パス（`CAPTURE_FAILED`/`WS_CLOSED`が明確に表示されるか）は未確認 — タスク10の一括確認と合わせて実施
 - [x] **9. 文字起こしの描画**
   - [x] `lib/transcript/transcriptStore.ts`をTDDで実装（同一itemに対するdelta→final、順不同での到着、重複ファイナル、空のdelta/final、`reset()`を含む13ケース）
   - [x] `TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`を描画に接続。DOM APIで構築（`innerHTML`不使用）し、下端付近にいる場合のみ自動追従。`CAPTURE_STARTED`で新セッションとして`reset()`
-  - [ ] 手動確認（実際の音声での継続的な構築、重複なし）は、一括確認ラウンドで実施
-- [ ] **10. Start/Stopライフサイクルの堅牢性**
+  - [x] **手動確認**: 実際の音声で文字起こしがサイドパネルに表示されることを確認済み
+  - [ ] 重複がないか・自動スクロールの挙動は未確認 — タスク10の一括確認と合わせて実施
+- [ ] **10. Start/Stopライフサイクルの堅牢性 + 残りの手動確認まとめ**
+  - [ ] 音声が途切れず再生され続けるか（タスク5の残り）
+  - [ ] Stopでクリーンに`Idle`へ戻るか
+  - [ ] キャプチャ中にタブを閉じて`TAB_GONE`が表示されるか
+  - [ ] 無効なAPIキーでの拒否パスが明確に表示されるか
+  - [ ] 文字起こしの重複がないか・自動スクロールが正しく動くか
   - [ ] 拡張機能を再読み込みせずにStart→Stop→Startを繰り返す
   - [ ] `chrome://extensions`のサービスワーカーインスペクタで、開いたままのソケットやオフスクリーンドキュメントが残っていないか確認
   - [ ] Startの連打で2つのパイプラインが生成されないようガードする

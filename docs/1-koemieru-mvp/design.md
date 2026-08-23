@@ -138,5 +138,5 @@ type KoemieruMessage =
 
 ## Known Risks（既知のリスク、requirements.mdのConstraintsも参照）
 
-- 生のAPIキーによるWebSocket認証経路はOpenAI公式ドキュメントでは未検証。既知のリスクとして受け入れており、フォールバックとして最小限のエフェメラルトークン発行バックエンドを想定している。
-- OpenAIの文字起こしセッション設定JSONおよびイベントのフィールド名は、このドキュメントの記述をそのまま信用せず、実装直前に`developers.openai.com`で再検証する。
+- ~~生のAPIキーによるWebSocket認証経路はOpenAI公式ドキュメントでは未検証~~ → **実機テストで動作を確認済み（2026-08-24）**。`openai-insecure-api-key.<KEY>`サブプロトコルでの直接接続は、少なくとも現時点のOpenAI側では拒否されずに機能している。ただしOpenAI公式ドキュメントには引き続き未記載のため、将来的に予告なく拒否・変更される可能性は残る。もし破綻した場合のフォールバック（最小限のエフェメラルトークン発行バックエンド）は変わらず想定しておく。
+- OpenAIの文字起こしセッション設定JSONおよびイベントのフィールド名は事前にドキュメントで検証したが、**実機テストでドキュメントとの相違が複数見つかった**（`?model=`ではなく未文書化の`?intent=transcription`が必要、`turn_detection`（サーバーVAD）はこのモデルでは非対応で`input_audio_buffer.commit`の手動送信が必要、など）。詳細は[requirements.md](requirements.md)および各コミットメッセージを参照。ドキュメントの記述を鵜呑みにせず実機で検証する、というCLAUDE.mdの方針が実際に有効だったケース。
