@@ -29,8 +29,8 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [x] **設計変更**: `chrome.tabCapture`が`activeTab`と同じ「ユーザーによる呼び出し」を要求し、かつサイドパネル内のボタンクリックはその資格を満たさない（Chromiumの意図的な仕様、Won't Fixのバグ報告あり）ことが判明。Startのトリガーをサイドパネル内ボタンからツールバーアイコンのクリック（`action.onClicked`）に変更。詳細は[design.md](design.md)
   - [x] **手動確認（コア動作）**: 実機でログを追跡し、`action.onClicked` → `ENSURE_OFFSCREEN_READY` → `getMediaStreamId` → `START_CAPTURE` → `getUserMedia`成功 → `CAPTURE_STARTED`という一連の流れが動作し、サイドパネルのステータスが「Capturing tab audio…」になることを確認済み
   - [ ] 残りの詳細確認（音声が途切れず再生され続けるか、Stopでクリーンに`Idle`へ戻るか、キャプチャ中にタブを閉じて`TAB_GONE`が表示されるか）は、タスク8〜9完了後の一括確認ラウンドに合わせて実施
-- [ ] **6. PCM変換モジュール**
-  - [ ] 既知のFloat32のフィクスチャを使い、`lib/audio/pcm.ts`（`downmixToMono`、`resample`、`float32ToInt16PCM`、`int16ToBase64`）をTDDで実装 — chrome APIへの依存なし
+- [x] **6. PCM変換モジュール**
+  - [x] 既知のFloat32のフィクスチャを使い、`lib/audio/pcm.ts`（`downmixToMono`、`resample`、`float32ToInt16PCM`、`int16ToBase64`）をTDDで実装 — chrome APIへの依存なし
 - [ ] **7. AudioWorkletタップの配線**
   - [ ] オフスクリーンドキュメントの音声グラフからリアルタイムでタップし`lib/audio/pcm.ts`に流す。（まだWebSocketなし）チャンクをログ/カウントし、再生を壊さずに安定したケイデンスであることを確認
 - [ ] **8. OpenAI Realtime WebSocket接続**
