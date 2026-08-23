@@ -9,6 +9,17 @@ const OFFSCREEN_JUSTIFICATION =
   'Captures and streams tab audio to OpenAI for real-time transcription.';
 
 export default defineBackground(() => {
+  // Chrome persists sidePanel.setPanelBehavior() across code updates and
+  // service worker restarts — it's not reset just because the call is
+  // removed from the code. An earlier version of this file called
+  // setPanelBehavior({ openPanelOnActionClick: true }), which then silently
+  // kept suppressing action.onClicked (see below) even after that call was
+  // deleted. Explicitly set it back to false so a browser profile that ran
+  // that earlier version doesn't get stuck with the old behavior.
+  browser.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: false })
+    .catch((error) => console.error('Failed to reset side panel behavior', error));
+
   // The background service worker doesn't perform the capture itself (no
   // DOM/Web Audio access, and it's idle-killed after ~30s) — it only owns
   // the offscreen document's lifecycle and tracks which tab is being
