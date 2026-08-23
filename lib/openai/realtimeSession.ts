@@ -127,8 +127,14 @@ export function connectRealtimeSession(
   model: string = DEFAULT_MODEL,
 ): RealtimeSession {
   const ws = createWebSocket(buildRealtimeUrl(), buildRealtimeSubprotocols(apiKey));
+  // The AudioWorklet tap starts posting chunks as soon as capture begins,
+  // which can easily outrun the WebSocket handshake (a real network round
+  // trip) — sendAudioChunk() must not call ws.send() before onopen fires,
+  // or the browser throws InvalidStateError ("Still in CONNECTING state").
+  let isOpen = false;
 
   ws.onopen = () => {
+    isOpen = true;
     ws.send(buildSessionUpdatePayload(model));
     handlers.onOpen?.();
   };
@@ -155,10 +161,18 @@ export function connectRealtimeSession(
   };
 
   ws.onerror = (error) => handlers.onError?.(error);
-  ws.onclose = (event) => handlers.onClose?.(event.code, event.reason);
+  ws.onclose = (event) => {
+    isOpen = false;
+    handlers.onClose?.(event.code, event.reason);
+  };
 
   return {
     sendAudioChunk(base64Audio: string): void {
+      // Silently drop chunks that arrive before the handshake completes or
+      // after the connection has closed — a few dropped leading frames are
+      // an acceptable MVP trade-off (see docs/1-koemieru-mvp/requirements.md:
+      // "some transcript lag is acceptable") versus buffering complexity.
+      if (!isOpen) return;
       ws.send(buildAppendAudioPayload(base64Audio));
     },
     close(): void {

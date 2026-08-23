@@ -180,9 +180,10 @@ describe('connectRealtimeSession', () => {
     expect(onError).toHaveBeenCalledWith(errorEvent);
   });
 
-  it('sendAudioChunk sends an input_audio_buffer.append event', () => {
+  it('sendAudioChunk sends an input_audio_buffer.append event once open', () => {
     const fakeWs = createFakeWebSocket();
     const session = connectRealtimeSession('sk-test', {}, () => fakeWs);
+    fakeWs.onopen?.();
 
     session.sendAudioChunk('AQD//w==');
 
@@ -190,6 +191,30 @@ describe('connectRealtimeSession', () => {
       type: 'input_audio_buffer.append',
       audio: 'AQD//w==',
     });
+  });
+
+  it('sendAudioChunk drops chunks that arrive before the socket has opened', () => {
+    // The AudioWorklet tap can start posting chunks before the WebSocket
+    // handshake finishes; calling ws.send() before onopen throws
+    // InvalidStateError in real browsers (confirmed by live testing).
+    const fakeWs = createFakeWebSocket();
+    const session = connectRealtimeSession('sk-test', {}, () => fakeWs);
+
+    session.sendAudioChunk('AQD//w==');
+
+    expect(fakeWs.send).not.toHaveBeenCalled();
+  });
+
+  it('sendAudioChunk drops chunks after the socket has closed', () => {
+    const fakeWs = createFakeWebSocket();
+    const session = connectRealtimeSession('sk-test', {}, () => fakeWs);
+    fakeWs.onopen?.();
+    fakeWs.onclose?.({ code: 1000, reason: '' });
+    fakeWs.send.mockClear();
+
+    session.sendAudioChunk('AQD//w==');
+
+    expect(fakeWs.send).not.toHaveBeenCalled();
   });
 
   it('close() closes the underlying socket', () => {
