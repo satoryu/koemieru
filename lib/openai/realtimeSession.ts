@@ -141,7 +141,11 @@ export function connectRealtimeSession(
 
   ws.onmessage = (event) => {
     const parsed = parseRealtimeEvent(event.data);
-    if (!parsed) return;
+    if (!parsed) {
+      console.warn('[realtimeSession] received unparseable message', event.data);
+      return;
+    }
+    console.log('[realtimeSession] event', parsed.type, parsed);
 
     if (
       parsed.type === 'conversation.item.input_audio_transcription.delta' &&
@@ -155,9 +159,12 @@ export function connectRealtimeSession(
       parsed.transcript !== undefined
     ) {
       handlers.onFinal?.(parsed.item_id, parsed.transcript);
+    } else if (parsed.type === 'error') {
+      console.error('[realtimeSession] server-sent error event', parsed);
     }
-    // Other event types (session.created, errors, etc.) are intentionally
-    // not treated as fatal — just not acted on here.
+    // Other event types (session.created, session.updated, input audio
+    // buffer speech_started/stopped, etc.) are intentionally not treated
+    // as fatal — just not acted on here, but still logged above.
   };
 
   ws.onerror = (error) => handlers.onError?.(error);
