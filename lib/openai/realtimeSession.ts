@@ -14,12 +14,24 @@
 // — re-verify before trusting this if it's been a while, per CLAUDE.md's
 // Verification Principles (OpenAI's realtime/transcription models and event
 // shapes have churned before).
-
+//
+// Connection URL: `?model=<transcription model>` (e.g. gpt-live-transcribe)
+// is REJECTED with "invalid_request_error.invalid_model" — confirmed by
+// live testing on 2026-08-23. The official guides only ever show `?model=`
+// with a *conversational* realtime model (gpt-realtime-*); the actual
+// transcription model is selected separately via session.update's
+// audio.input.transcription.model field. The working connection query
+// parameter for a transcription session is the UNDOCUMENTED
+// `?intent=transcription` — this isn't in OpenAI's official docs, only
+// reported by other developers hitting the same error (see
+// https://community.openai.com/t/missing-documentation-for-websocket-realtime-transcription-mode/1366640).
+// Re-verify this against official docs if it starts failing — it could
+// change or get formally documented/replaced at any time.
 const DEFAULT_MODEL = 'gpt-live-transcribe';
-const REALTIME_URL_BASE = 'wss://api.openai.com/v1/realtime';
+const REALTIME_URL = 'wss://api.openai.com/v1/realtime?intent=transcription';
 
-export function buildRealtimeUrl(model: string = DEFAULT_MODEL): string {
-  return `${REALTIME_URL_BASE}?model=${encodeURIComponent(model)}`;
+export function buildRealtimeUrl(): string {
+  return REALTIME_URL;
 }
 
 export function buildRealtimeSubprotocols(apiKey: string): string[] {
@@ -114,7 +126,7 @@ export function connectRealtimeSession(
   createWebSocket: WebSocketFactory = defaultWebSocketFactory,
   model: string = DEFAULT_MODEL,
 ): RealtimeSession {
-  const ws = createWebSocket(buildRealtimeUrl(model), buildRealtimeSubprotocols(apiKey));
+  const ws = createWebSocket(buildRealtimeUrl(), buildRealtimeSubprotocols(apiKey));
 
   ws.onopen = () => {
     ws.send(buildSessionUpdatePayload(model));

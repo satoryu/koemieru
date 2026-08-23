@@ -9,14 +9,11 @@ import {
 } from './realtimeSession';
 
 describe('buildRealtimeUrl', () => {
-  it('defaults to the gpt-live-transcribe model', () => {
-    expect(buildRealtimeUrl()).toBe('wss://api.openai.com/v1/realtime?model=gpt-live-transcribe');
-  });
-
-  it('accepts a different model', () => {
-    expect(buildRealtimeUrl('gpt-transcribe')).toBe(
-      'wss://api.openai.com/v1/realtime?model=gpt-transcribe',
-    );
+  it('connects with intent=transcription, not a model query parameter', () => {
+    // ?model=<transcription model> is rejected with invalid_model — the
+    // model is selected via session.update instead. See the comment above
+    // REALTIME_URL in realtimeSession.ts for how this was confirmed.
+    expect(buildRealtimeUrl()).toBe('wss://api.openai.com/v1/realtime?intent=transcription');
   });
 });
 
