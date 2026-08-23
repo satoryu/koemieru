@@ -47,14 +47,14 @@ export function buildSessionUpdatePayload(model: string = DEFAULT_MODEL): string
         input: {
           format: { type: 'audio/pcm', rate: 24000 },
           transcription: { model },
-          // create_response/interrupt_response are only meaningful for
-          // full conversational sessions, not transcription — omitted.
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500,
-          },
+          // Server VAD (turn_detection: {type: 'server_vad', ...}) is
+          // rejected by the API for this model — "Turn detection is not
+          // supported for this transcription model" (confirmed by live
+          // testing; OpenAI's docs didn't call this out explicitly for
+          // gpt-live-transcribe). With it disabled, the client must send
+          // input_audio_buffer.commit manually to trigger transcription —
+          // see buildCommitPayload() and offscreen/main.ts's periodic commit.
+          turn_detection: null,
         },
       },
     },
@@ -63,6 +63,13 @@ export function buildSessionUpdatePayload(model: string = DEFAULT_MODEL): string
 
 export function buildAppendAudioPayload(base64Audio: string): string {
   return JSON.stringify({ type: 'input_audio_buffer.append', audio: base64Audio });
+}
+
+/** With turn_detection disabled (see buildSessionUpdatePayload), the client
+ * must send this periodically to finalize a turn and trigger transcription
+ * of the buffered audio. */
+export function buildCommitPayload(): string {
+  return JSON.stringify({ type: 'input_audio_buffer.commit' });
 }
 
 interface RealtimeEvent {
@@ -113,6 +120,10 @@ export type WebSocketFactory = (url: string, protocols: string[]) => WebSocketLi
 
 export interface RealtimeSession {
   sendAudioChunk(base64Audio: string): void;
+  /** Finalizes the current turn so the server transcribes the buffered
+   * audio — required since turn_detection is disabled (see
+   * buildSessionUpdatePayload). Call periodically while capturing. */
+  commit(): void;
   close(): void;
 }
 
@@ -181,6 +192,10 @@ export function connectRealtimeSession(
       // "some transcript lag is acceptable") versus buffering complexity.
       if (!isOpen) return;
       ws.send(buildAppendAudioPayload(base64Audio));
+    },
+    commit(): void {
+      if (!isOpen) return;
+      ws.send(buildCommitPayload());
     },
     close(): void {
       ws.close();

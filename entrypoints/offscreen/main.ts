@@ -21,6 +21,11 @@ interface TabCaptureConstraints {
 const PCM_WORKLET_URL = '/pcm-worklet.js';
 const PCM_WORKLET_PROCESSOR_NAME = 'pcm-capture-processor';
 const OPENAI_INPUT_SAMPLE_RATE = 24000;
+// Turn detection (server VAD) is rejected by the API for this transcription
+// model, so we commit turns on a fixed cadence instead of relying on
+// speech-boundary detection — see lib/openai/realtimeSession.ts's
+// buildSessionUpdatePayload for the full explanation.
+const COMMIT_INTERVAL_MS = 2000;
 
 let activeStream: MediaStream | undefined;
 let audioContext: AudioContext | undefined;
@@ -28,6 +33,7 @@ let pcmWorkletNode: AudioWorkletNode | undefined;
 let realtimeSession: RealtimeSession | undefined;
 let isCapturing = false;
 let pcmChunkCount = 0;
+let lastCommitAt = 0;
 
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isKoemieruMessage(message)) return undefined;
@@ -124,6 +130,7 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
     const workletNode = new AudioWorkletNode(ctx, PCM_WORKLET_PROCESSOR_NAME);
     source.connect(workletNode);
     pcmChunkCount = 0;
+    lastCommitAt = Date.now();
     workletNode.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
       pcmChunkCount++;
       if (pcmChunkCount % 12 === 1) {
@@ -134,6 +141,13 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
       const resampled = resample(mono, ctx.sampleRate, OPENAI_INPUT_SAMPLE_RATE);
       const pcm16 = float32ToInt16PCM(resampled);
       realtimeSession?.sendAudioChunk(int16ToBase64(pcm16));
+
+      const now = Date.now();
+      if (now - lastCommitAt >= COMMIT_INTERVAL_MS) {
+        console.log('[offscreen] committing audio turn');
+        realtimeSession?.commit();
+        lastCommitAt = now;
+      }
     };
     pcmWorkletNode = workletNode;
   } catch (error) {
@@ -148,6 +162,9 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
 }
 
 async function stopCapture(): Promise<void> {
+  // Flush any trailing buffered-but-uncommitted audio so the last few
+  // seconds of a session aren't silently lost.
+  realtimeSession?.commit();
   realtimeSession?.close();
   teardownAudioResources();
   await broadcast({ type: 'CAPTURE_STOPPED' });

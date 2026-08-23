@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildAppendAudioPayload,
+  buildCommitPayload,
   buildRealtimeSubprotocols,
   buildRealtimeUrl,
   buildSessionUpdatePayload,
@@ -27,7 +28,11 @@ describe('buildRealtimeSubprotocols', () => {
 });
 
 describe('buildSessionUpdatePayload', () => {
-  it('builds a transcription session config with server VAD and 24kHz PCM', () => {
+  it('builds a transcription session config with turn detection disabled and 24kHz PCM', () => {
+    // turn_detection (server VAD) is rejected by the API for this model —
+    // "Turn detection is not supported for this transcription model"
+    // (confirmed by live testing) — so it must be null, and the client
+    // sends input_audio_buffer.commit manually instead (see commit()).
     const payload = JSON.parse(buildSessionUpdatePayload());
     expect(payload).toEqual({
       type: 'session.update',
@@ -37,12 +42,7 @@ describe('buildSessionUpdatePayload', () => {
           input: {
             format: { type: 'audio/pcm', rate: 24000 },
             transcription: { model: 'gpt-live-transcribe' },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
-            },
+            turn_detection: null,
           },
         },
       },
@@ -52,6 +52,12 @@ describe('buildSessionUpdatePayload', () => {
   it('uses the given model', () => {
     const payload = JSON.parse(buildSessionUpdatePayload('gpt-transcribe'));
     expect(payload.session.audio.input.transcription.model).toBe('gpt-transcribe');
+  });
+});
+
+describe('buildCommitPayload', () => {
+  it('builds an input_audio_buffer.commit event', () => {
+    expect(JSON.parse(buildCommitPayload())).toEqual({ type: 'input_audio_buffer.commit' });
   });
 });
 
@@ -213,6 +219,25 @@ describe('connectRealtimeSession', () => {
     fakeWs.send.mockClear();
 
     session.sendAudioChunk('AQD//w==');
+
+    expect(fakeWs.send).not.toHaveBeenCalled();
+  });
+
+  it('commit() sends an input_audio_buffer.commit event once open', () => {
+    const fakeWs = createFakeWebSocket();
+    const session = connectRealtimeSession('sk-test', {}, () => fakeWs);
+    fakeWs.onopen?.();
+
+    session.commit();
+
+    expect(JSON.parse(fakeWs.sent.at(-1)!)).toEqual({ type: 'input_audio_buffer.commit' });
+  });
+
+  it('commit() does nothing before the socket has opened', () => {
+    const fakeWs = createFakeWebSocket();
+    const session = connectRealtimeSession('sk-test', {}, () => fakeWs);
+
+    session.commit();
 
     expect(fakeWs.send).not.toHaveBeenCalled();
   });
