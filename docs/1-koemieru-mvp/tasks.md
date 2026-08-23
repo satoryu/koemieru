@@ -43,10 +43,10 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [x] `wxt.config.ts`: `host_permissions: ["https://api.openai.com/*"]`を追加
   - [x] `sidepanel/main.ts`: `WS_CONNECTING`/`WS_OPEN`/`WS_CLOSED`のステータス表示を追加
   - [ ] 手動確認（有効なキーでの接続維持、無効なキーでの拒否パス）は、タスク9完了後の一括確認ラウンドに合わせて実施
-- [ ] **9. 文字起こしの描画**
-  - [ ] `lib/transcript/transcriptStore.ts`をTDDで実装（同一itemに対するdelta→final、順不同での到着、空のdelta、重複しないこと）
-  - [ ] `TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`を描画に接続し、スクロールして離れていない限り自動追従
-  - [ ] 手動確認: 実際の音声で、文字起こしが重複なく継続的に構築されることを確認
+- [x] **9. 文字起こしの描画**
+  - [x] `lib/transcript/transcriptStore.ts`をTDDで実装（同一itemに対するdelta→final、順不同での到着、重複ファイナル、空のdelta/final、`reset()`を含む13ケース）
+  - [x] `TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`を描画に接続。DOM APIで構築（`innerHTML`不使用）し、下端付近にいる場合のみ自動追従。`CAPTURE_STARTED`で新セッションとして`reset()`
+  - [ ] 手動確認（実際の音声での継続的な構築、重複なし）は、一括確認ラウンドで実施
 - [ ] **10. Start/Stopライフサイクルの堅牢性**
   - [ ] 拡張機能を再読み込みせずにStart→Stop→Startを繰り返す
   - [ ] `chrome://extensions`のサービスワーカーインスペクタで、開いたままのソケットやオフスクリーンドキュメントが残っていないか確認

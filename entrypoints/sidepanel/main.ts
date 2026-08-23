@@ -3,6 +3,7 @@ import { browser } from 'wxt/browser';
 import { getApiKey, setApiKey } from '@/lib/storage/apiKeyStore';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
 import type { CaptureFailureReason } from '@/lib/messaging/protocol';
+import { createTranscriptStore } from '@/lib/transcript/transcriptStore';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -30,6 +31,9 @@ const apiKeyInput = document.querySelector<HTMLInputElement>('#api-key')!;
 const apiKeySavedIndicator = document.querySelector<HTMLSpanElement>('#api-key-saved')!;
 const stopButton = document.querySelector<HTMLButtonElement>('#stop')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
+const transcriptEl = document.querySelector<HTMLDivElement>('#transcript')!;
+
+const transcriptStore = createTranscriptStore();
 
 getApiKey().then((savedKey) => {
   if (savedKey) apiKeyInput.value = savedKey;
@@ -57,6 +61,37 @@ function setStatus(text: string): void {
   statusEl.textContent = text;
 }
 
+const SCROLL_BOTTOM_THRESHOLD_PX = 24;
+
+function isScrolledToBottom(): boolean {
+  return (
+    transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <=
+    SCROLL_BOTTOM_THRESHOLD_PX
+  );
+}
+
+/** Renders transcriptStore's current state without duplicating text, and
+ * auto-follows new text unless the user has scrolled away from the bottom. */
+function renderTranscript(): void {
+  const state = transcriptStore.getState();
+  const wasAtBottom = isScrolledToBottom();
+
+  transcriptEl.replaceChildren();
+  state.segments.forEach((segment, index) => {
+    if (index > 0) transcriptEl.append(document.createTextNode('\n\n'));
+    transcriptEl.append(document.createTextNode(segment));
+  });
+  if (state.inProgress) {
+    if (state.segments.length > 0) transcriptEl.append(document.createTextNode('\n\n'));
+    const partialEl = document.createElement('span');
+    partialEl.className = 'partial';
+    partialEl.textContent = state.inProgress.text;
+    transcriptEl.append(partialEl);
+  }
+
+  if (wasAtBottom) transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
 stopButton.addEventListener('click', () => {
   void handleStop();
 });
@@ -72,8 +107,20 @@ browser.runtime.onMessage.addListener((message) => {
 
   switch (message.type) {
     case 'CAPTURE_STARTED':
+      transcriptStore.reset();
+      renderTranscript();
       setUiState('active');
       setStatus('Capturing tab audio… connecting to OpenAI…');
+      break;
+
+    case 'TRANSCRIPT_DELTA':
+      transcriptStore.applyDelta(message.itemId, message.delta);
+      renderTranscript();
+      break;
+
+    case 'TRANSCRIPT_FINAL':
+      transcriptStore.applyFinal(message.itemId, message.transcript);
+      renderTranscript();
       break;
 
     case 'WS_OPEN':
@@ -102,8 +149,6 @@ browser.runtime.onMessage.addListener((message) => {
       setStatus('The captured tab was closed.');
       break;
 
-    // TRANSCRIPT_DELTA/TRANSCRIPT_FINAL rendering is added once
-    // lib/transcript/transcriptStore.ts exists (see docs/1-koemieru-mvp/tasks.md).
     default:
       break;
   }
@@ -119,6 +164,3 @@ function describeCaptureFailure(reason: CaptureFailureReason, detail?: string): 
       return detail ? `Capture failed: ${detail}` : 'Capture failed. See console for details.';
   }
 }
-
-// Transcript rendering (TRANSCRIPT_DELTA/TRANSCRIPT_FINAL) is added once
-// lib/transcript/transcriptStore.ts exists (see docs/1-koemieru-mvp/tasks.md).
