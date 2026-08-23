@@ -1,14 +1,23 @@
 // Message types shared by all three extension contexts (side panel,
-// background, offscreen document). Everything is routed through the
-// background service worker, which is the single source of truth for
-// capture session state — the side panel and the offscreen document never
-// message each other directly.
+// background, offscreen document). Everything is sent via
+// browser.runtime.sendMessage broadcasts; each context's listener acts on
+// the types it owns and passively observes others it needs for bookkeeping
+// (a context never receives its own broadcast back).
 //
 // Direction key:
-//   sidepanel -> background            (ENSURE_OFFSCREEN_READY, START_CAPTURE, STOP_CAPTURE)
-//   background -> offscreen            (forwarded START_CAPTURE / STOP_CAPTURE)
-//   offscreen -> background -> sidepanel (everything else, relayed verbatim)
-//   background -> sidepanel            (TAB_GONE, originating from chrome.tabs.onRemoved)
+//   background -> offscreen             (START_CAPTURE, STOP_CAPTURE, ENSURE_OFFSCREEN_READY as a readiness ping)
+//   background -> sidepanel             (CAPTURE_FAILED when no API key is saved, TAB_GONE)
+//   offscreen -> background, sidepanel  (CAPTURE_STARTED/FAILED, WS_*, TRANSCRIPT_*, CAPTURE_STOPPED — background
+//                                        observes these passively for its own session bookkeeping)
+//   sidepanel -> offscreen, background  (STOP_CAPTURE, from the panel's Stop button)
+//
+// START_CAPTURE is minted and sent by background.ts's `action.onClicked`
+// handler, NOT by a button inside the side panel: Chrome only grants
+// chrome.tabCapture/activeTab access from a qualifying user gesture (icon
+// click, context menu, keyboard shortcut, omnibox), and deliberately does
+// NOT extend that grant to clicks on elements inside an already-open side
+// panel (see entrypoints/background.ts for the full explanation and a link
+// to the relevant Chromium bug).
 
 export type CaptureFailureReason = 'PERMISSION_DENIED' | 'STREAM_ID_EXPIRED' | 'UNKNOWN';
 

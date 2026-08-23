@@ -1,23 +1,74 @@
 import { browser } from 'wxt/browser';
+import type { Browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
+import type { KoemieruMessage } from '@/lib/messaging/protocol';
+import { getApiKey } from '@/lib/storage/apiKeyStore';
 
 const OFFSCREEN_URL = '/offscreen.html';
 const OFFSCREEN_JUSTIFICATION =
   'Captures and streams tab audio to OpenAI for real-time transcription.';
 
 export default defineBackground(() => {
-  // Clicking the toolbar icon opens the side panel instead of a popup.
-  // (Requires `manifest.action: {}` in wxt.config.ts and no popup entrypoint.)
-  browser.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error('Failed to set side panel behavior', error));
-
   // The background service worker doesn't perform the capture itself (no
   // DOM/Web Audio access, and it's idle-killed after ~30s) — it only owns
   // the offscreen document's lifecycle and tracks which tab is being
-  // captured, by passively observing the same broadcasts the side panel
-  // reacts to.
+  // captured.
   let capturedTabId: number | undefined;
+
+  // IMPORTANT: capture must start from `action.onClicked`, not a button
+  // inside the side panel. Chrome's `activeTab`/`tabCapture` grant requires
+  // a qualifying user gesture (icon click, context-menu item, keyboard
+  // shortcut, or omnibox selection) — Chrome deliberately does NOT extend
+  // that grant to clicks on elements inside an already-open side panel,
+  // since it's a persistent surface (see the Chromium team's own
+  // explanation on crbug.com/40926394, filed Won't-Fix). So we do NOT use
+  // `sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` here —
+  // that would suppress `onClicked` entirely. Instead, clicking the toolbar
+  // icon both opens the panel for that tab and starts capturing it, in the
+  // same gesture-bearing handler.
+  browser.action.onClicked.addListener((tab) => {
+    void handleActionClick(tab);
+  });
+
+  async function handleActionClick(tab: Browser.tabs.Tab): Promise<void> {
+    if (tab.id === undefined) return;
+    const tabId = tab.id;
+
+    await browser.sidePanel
+      .open({ tabId })
+      .catch((error) => console.error('Failed to open side panel', error));
+
+    if (capturedTabId !== undefined) {
+      // Already capturing (this tab or another) — just surface the panel,
+      // don't start a second pipeline. Stop first via the panel's Stop
+      // button to start a different tab.
+      return;
+    }
+
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      await broadcast({
+        type: 'CAPTURE_FAILED',
+        reason: 'UNKNOWN',
+        detail: 'Enter your OpenAI API key in the side panel first.',
+      });
+      return;
+    }
+
+    try {
+      await ensureOffscreenReady();
+      const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: tabId });
+      capturedTabId = tabId;
+      await broadcast({ type: 'START_CAPTURE', streamId, tabId, apiKey });
+    } catch (error) {
+      console.error('Failed to start capture', error);
+      await broadcast({
+        type: 'CAPTURE_FAILED',
+        reason: 'UNKNOWN',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isKoemieruMessage(message)) return undefined;
@@ -33,10 +84,6 @@ export default defineBackground(() => {
         );
         return true; // keep the message channel open for the async response
 
-      case 'START_CAPTURE':
-        capturedTabId = message.tabId;
-        return undefined;
-
       case 'CAPTURE_FAILED':
       case 'CAPTURE_STOPPED':
         capturedTabId = undefined;
@@ -51,8 +98,8 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener((tabId) => {
     if (tabId !== capturedTabId) return;
     capturedTabId = undefined;
-    browser.runtime.sendMessage({ type: 'TAB_GONE', tabId }).catch(() => undefined);
-    browser.runtime.sendMessage({ type: 'STOP_CAPTURE' }).catch(() => undefined);
+    broadcast({ type: 'TAB_GONE', tabId });
+    broadcast({ type: 'STOP_CAPTURE' });
   });
 });
 
@@ -100,4 +147,8 @@ function closeOffscreenDocument(): void {
   browser.offscreen
     .closeDocument()
     .catch((error) => console.error('Failed to close offscreen document', error));
+}
+
+function broadcast(message: KoemieruMessage): Promise<unknown> {
+  return browser.runtime.sendMessage(message).catch(() => undefined);
 }

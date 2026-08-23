@@ -6,22 +6,27 @@ Issue: [#1](https://github.com/satoryu/koemieru/issues/1) · 要件: [requiremen
 
 3つの拡張機能コンテキストを、`chrome.offscreen`ドキュメントのライフサイクルとキャプチャセッションの状態管理を一手に引き受けるバックグラウンドサービスワーカーを中心に連携させる。サイドパネルとオフスクリーンドキュメントは直接メッセージをやり取りしない — `browser.runtime.sendMessage`/`onMessage`でブロードキャストし、各コンテキストは自分が扱うべきメッセージ種別に反応しつつ、状態管理に必要な他のメッセージは受動的に観測する（[protocol.ts](../../lib/messaging/protocol.ts)参照）。
 
+> **重要な設計変更（実装中に判明）**: 当初はサイドパネル内の「Start」ボタンから`chrome.tabCapture.getMediaStreamId()`を呼ぶ設計だったが、実機検証で`Extension has not been invoked for the current page (see activeTab permission)`エラーに遭遇した。調査の結果、これはChromiumチーム自身が公式に説明している意図的な仕様で、サイドパネルは常時表示されうるサーフェスであるという理由から`activeTab`の付与対象から除外されており、パネル内のボタンクリックでは`tabCapture`を開始できない（該当のChromiumバグ報告はWon't Fixでクローズ済み: [crbug/40926394](https://issues.chromium.org/issues/40926394)）。そのため、**Startのトリガーをツールバーアイコンのクリックに変更**した。`browser.action.onClicked`ハンドラ内でストリームIDの取得とサイドパネルを開く処理を同じジェスチャー内で行う。サイドパネルの「Start」ボタンは廃止し、案内テキストに置き換えた。「Stop」ボタンはこの制約を受けない（停止に`activeTab`は不要）ため、そのままサイドパネル内に残している。
+
 ```mermaid
 flowchart LR
+    User(["ユーザー"])
     subgraph SP["サイドパネル (entrypoints/sidepanel/)"]
-        UI["APIキー入力, Start/Stop,\nステータス, 文字起こし表示"]
+        UI["APIキー入力, Stop,\nステータス, 文字起こし表示"]
     end
     subgraph BG["バックグラウンド (entrypoints/background.ts)"]
-        Session["セッション状態管理,\nオフスクリーンドキュメントの\nライフサイクル,\ntabs.onRemoved -> TAB_GONE"]
+        Session["action.onClicked → 開始,\nオフスクリーンドキュメントの\nライフサイクル,\ntabs.onRemoved -> TAB_GONE"]
     end
     subgraph OD["オフスクリーンドキュメント (entrypoints/offscreen/)"]
         Pipeline["getUserMediaでの引き換え,\n再生パススルー,\nPCMタップ, OpenAIへのWebSocket"]
     end
     OpenAI[("OpenAI Realtime API\n(wss://api.openai.com)")]
 
-    UI -- "ENSURE_OFFSCREEN_READY\nSTART_CAPTURE / STOP_CAPTURE" --> BG
-    BG -- "オフスクリーン文書の\n作成/破棄" --> OD
-    UI -- "broadcast: START_CAPTURE / STOP_CAPTURE" --> OD
+    User -- "ツールバーアイコンをクリック\n（開始のジェスチャー）" --> BG
+    User -- "Stopをクリック" --> SP
+    BG -- "sidePanel.open() で開く" --> SP
+    BG -- "オフスクリーン文書の\n作成/破棄,\nbroadcast: START_CAPTURE" --> OD
+    SP -- "broadcast: STOP_CAPTURE" --> OD
     OD -- "broadcast: CAPTURE_STARTED/FAILED,\nWS_*, TRANSCRIPT_DELTA/FINAL,\nCAPTURE_STOPPED" --> UI
     OD -- "broadcast (状態管理用に観測のみ)" --> BG
     OD <-- "wss + openai-insecure-api-key.<KEY>" --> OpenAI
@@ -31,13 +36,13 @@ flowchart LR
 
 ### サイドパネル (`entrypoints/sidepanel/`)
 
-UIの状態（`idle | connecting | active`）を保持し、文字起こしの状態を描画する。Startクリックのハンドラ内で`ENSURE_OFFSCREEN_READY`を送信し、同じハンドラ内でタブキャプチャのストリームIDを取得して`START_CAPTURE`を送信する（ユーザー操作コンテキストを維持するため）。`CAPTURE_STARTED`/`CAPTURE_FAILED`/`WS_*`/`TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`/`CAPTURE_STOPPED`/`TAB_GONE`を受信してステータス表示と文字起こし描画を更新する。APIキーは`lib/storage/apiKeyStore.ts`経由で永続化する。
+UIの状態（`idle | active`）を保持し、文字起こしの状態を描画する。**Startボタンは持たない**（下記の設計変更を参照）。APIキー入力（`lib/storage/apiKeyStore.ts`経由で永続化）とStopボタンのみを持ち、Stopクリックで`STOP_CAPTURE`をブロードキャストする。`CAPTURE_STARTED`/`CAPTURE_FAILED`/`WS_*`/`TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`/`CAPTURE_STOPPED`/`TAB_GONE`を受信してステータス表示と文字起こし描画を更新する。
 
 ### バックグラウンド (`entrypoints/background.ts`)
 
-- `browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`を呼び、ツールバーアイコンのクリックでサイドパネルが開くようにする。
+- `browser.action.onClicked`を購読する。クリックされたタブに対して`browser.sidePanel.open({tabId})`でサイドパネルを開き、同じジェスチャー内で（`capturedTabId`が未設定なら）`lib/storage/apiKeyStore.ts`からAPIキーを読み、オフスクリーンドキュメントを準備し、`chrome.tabCapture.getMediaStreamId({targetTabId})`を呼んでストリームIDを取得し、`START_CAPTURE`をブロードキャストする。（`setPanelBehavior({openPanelOnActionClick: true})`は**使わない** — それは`action.onClicked`の発火自体を止めてしまうため。）
 - `ENSURE_OFFSCREEN_READY`を処理: オフスクリーンドキュメントが存在しなければ作成する（`reasons: ['USER_MEDIA']`。`AUDIO_PLAYBACK`は無音状態が30秒続くと自動的にドキュメントを閉じてしまい、静かな間があるだけでセッションが落ちてしまうため使わない）。作成後、`createDocument()`の解決がドキュメント側のメッセージリスナー登録を保証しないため、短いリトライ付きのping/pongでレディを確認する。
-- `START_CAPTURE`/`CAPTURE_STARTED`/`CAPTURE_FAILED`/`CAPTURE_STOPPED`のブロードキャストを受動的に観測し、現在キャプチャ中の`tabId`を追跡するとともに、セッション終了時にオフスクリーンドキュメントを閉じる（常駐させ続けるより単純さを優先。次回のStartでその都度作り直す）。
+- `CAPTURE_FAILED`/`CAPTURE_STOPPED`のブロードキャストを受動的に観測し、`capturedTabId`をクリアするとともにオフスクリーンドキュメントを閉じる（常駐させ続けるより単純さを優先。次回のクリックでその都度作り直す）。
 - `chrome.tabs.onRemoved`: 削除されたタブがキャプチャ対象だった場合、`TAB_GONE`と`STOP_CAPTURE`をブロードキャストする。
 
 ### オフスクリーンドキュメント (`entrypoints/offscreen/`)
@@ -66,26 +71,26 @@ UIの状態（`idle | connecting | active`）を保持し、文字起こしの�
 
 ## Data Flow（データフロー）
 
-### 開始シーケンス（ストリームID失効との競合）
+### 開始シーケンス（ユーザー操作の資格とストリームID失効との競合）
 
-`getMediaStreamId()`が返すIDは一度しか使えず数秒で失効するため、順序が重要になる：
+`chrome.tabCapture.getMediaStreamId()`は、Chromeが「拡張機能が呼び出された」と認める操作（ツールバーアイコンのクリック・右クリックメニュー・キーボードショートカット・アドレスバー候補選択のいずれか）の最中でなければ失敗する。サイドパネルは常時表示されうるサーフェスであるため、**サイドパネルが開いていること自体、およびパネル内のボタンクリックは、この資格に含まれない**（Chromiumチームが意図的にそう設計しており、該当のバグ報告はWon't Fixでクローズされている）。そのため開始処理はすべて`browser.action.onClicked`ハンドラの中で完結させる。加えて、`getMediaStreamId()`が返すIDは一度しか使えず数秒で失効するため、この一連の処理を素早く行う必要がある：
 
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
-    participant SP as サイドパネル
     participant BG as バックグラウンド
     participant OD as オフスクリーン文書
     participant Chrome as chrome.tabCapture
+    participant SP as サイドパネル
 
-    User->>SP: Startをクリック
-    SP->>BG: ENSURE_OFFSCREEN_READY
-    BG->>OD: 作成（未作成の場合）+ ping
+    User->>BG: ツールバーアイコンをクリック（有効なジェスチャー）
+    BG->>SP: sidePanel.open({tabId})
+    BG->>BG: apiKeyStoreからAPIキーを読む
+    BG->>OD: 作成（未作成の場合）+ ping (ENSURE_OFFSCREEN_READY)
     OD-->>BG: ready
-    BG-->>SP: ready
-    SP->>Chrome: getMediaStreamId({targetTabId})
-    Chrome-->>SP: streamId（数秒で失効）
-    SP-->>OD: broadcast START_CAPTURE {streamId, tabId, apiKey}
+    BG->>Chrome: getMediaStreamId({targetTabId})
+    Chrome-->>BG: streamId（数秒で失効）
+    BG-->>OD: broadcast START_CAPTURE {streamId, tabId, apiKey}
     OD->>OD: 即座にgetUserMedia(streamId)
     OD-->>SP: broadcast CAPTURE_STARTED（またはCAPTURE_FAILED）
 ```

@@ -11,8 +11,12 @@ app.innerHTML = `
   <div class="api-key-row">
     <input id="api-key" type="password" placeholder="OpenAI API key" autocomplete="off" />
   </div>
+  <p class="hint">
+    Save your API key, then click the Koemieru icon in the toolbar on the tab
+    you want to transcribe to start. (Chrome only grants tab-capture access
+    from that click itself — a button in this panel can't trigger it.)
+  </p>
   <div class="controls">
-    <button id="start" type="button">Start</button>
     <button id="stop" type="button" disabled>Stop</button>
   </div>
   <div id="status" class="status">Idle</div>
@@ -20,7 +24,6 @@ app.innerHTML = `
 `;
 
 const apiKeyInput = document.querySelector<HTMLInputElement>('#api-key')!;
-const startButton = document.querySelector<HTMLButtonElement>('#start')!;
 const stopButton = document.querySelector<HTMLButtonElement>('#stop')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 
@@ -32,10 +35,9 @@ apiKeyInput.addEventListener('change', () => {
   void setApiKey(apiKeyInput.value);
 });
 
-type UiState = 'idle' | 'connecting' | 'active';
+type UiState = 'idle' | 'active';
 
 function setUiState(state: UiState): void {
-  startButton.disabled = state !== 'idle';
   stopButton.disabled = state === 'idle';
 }
 
@@ -43,49 +45,9 @@ function setStatus(text: string): void {
   statusEl.textContent = text;
 }
 
-startButton.addEventListener('click', () => {
-  void handleStart();
-});
-
 stopButton.addEventListener('click', () => {
   void handleStop();
 });
-
-async function handleStart(): Promise<void> {
-  const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
-    setStatus('Enter your OpenAI API key first.');
-    return;
-  }
-
-  setUiState('connecting');
-  setStatus('Preparing capture…');
-
-  try {
-    // Must stay in this same click handler, with no unrelated async work
-    // between minting the stream ID and sending it off, since the stream ID
-    // is single-use and expires within seconds (see docs/1-koemieru-mvp/design.md).
-    await browser.runtime.sendMessage({ type: 'ENSURE_OFFSCREEN_READY' });
-
-    const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab?.id) {
-      throw new Error('No active tab to capture.');
-    }
-
-    const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: activeTab.id });
-
-    await browser.runtime.sendMessage({
-      type: 'START_CAPTURE',
-      streamId,
-      tabId: activeTab.id,
-      apiKey,
-    });
-  } catch (error) {
-    console.error('Failed to start capture', error);
-    setStatus('Could not start capture. See console for details.');
-    setUiState('idle');
-  }
-}
 
 async function handleStop(): Promise<void> {
   setUiState('idle');
@@ -104,7 +66,7 @@ browser.runtime.onMessage.addListener((message) => {
 
     case 'CAPTURE_FAILED':
       setUiState('idle');
-      setStatus(describeCaptureFailure(message.reason));
+      setStatus(describeCaptureFailure(message.reason, message.detail));
       break;
 
     case 'CAPTURE_STOPPED':
@@ -122,14 +84,14 @@ browser.runtime.onMessage.addListener((message) => {
   }
 });
 
-function describeCaptureFailure(reason: CaptureFailureReason): string {
+function describeCaptureFailure(reason: CaptureFailureReason, detail?: string): string {
   switch (reason) {
     case 'PERMISSION_DENIED':
       return 'Tab audio capture permission was denied.';
     case 'STREAM_ID_EXPIRED':
-      return 'Capture could not start (the tab may have changed). Try again.';
+      return 'Capture could not start (the tab may have changed). Click the icon again.';
     default:
-      return 'Capture failed. See console for details.';
+      return detail ? `Capture failed: ${detail}` : 'Capture failed. See console for details.';
   }
 }
 

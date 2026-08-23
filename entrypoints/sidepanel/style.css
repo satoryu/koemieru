@@ -36,6 +36,12 @@ h1 {
   min-width: 0;
 }
 
+.hint {
+  font-size: 12px;
+  opacity: 0.75;
+  margin: 0;
+}
+
 .controls {
   display: flex;
   gap: 6px;
