@@ -15,9 +15,14 @@ interface TabCaptureConstraints {
   };
 }
 
+const PCM_WORKLET_URL = '/pcm-worklet.js';
+const PCM_WORKLET_PROCESSOR_NAME = 'pcm-capture-processor';
+
 let activeStream: MediaStream | undefined;
 let audioContext: AudioContext | undefined;
+let pcmWorkletNode: AudioWorkletNode | undefined;
 let isCapturing = false;
+let pcmChunkCount = 0;
 
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isKoemieruMessage(message)) return undefined;
@@ -66,15 +71,32 @@ async function startCapture(streamId: string): Promise<void> {
     );
 
     // Capturing a tab silences it for the user by default; reconnect it to
-    // this document's own destination to restore audibility. The processing
-    // tap that extracts PCM for OpenAI is added in a later step (Task 7),
-    // branching off `source` alongside this passthrough connection.
+    // this document's own destination to restore audibility.
     const ctx = new AudioContext();
     const source = ctx.createMediaStreamSource(stream);
     source.connect(ctx.destination);
 
+    // Processing tap: a second branch off the same source, feeding raw
+    // Float32 frames to the main thread via pcm-worklet.js. Its output is
+    // never connected onward — only its port messages are used — so it
+    // doesn't affect what's audible.
+    await ctx.audioWorklet.addModule(browser.runtime.getURL(PCM_WORKLET_URL));
+    const workletNode = new AudioWorkletNode(ctx, PCM_WORKLET_PROCESSOR_NAME);
+    source.connect(workletNode);
+    pcmChunkCount = 0;
+    workletNode.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
+      pcmChunkCount++;
+      // Conversion (lib/audio/pcm.ts) and streaming to OpenAI are wired in
+      // Task 8 — for now just confirm a steady cadence without flooding
+      // the console (one line/sec at the worklet's ~85ms batch size).
+      if (pcmChunkCount % 12 === 1) {
+        console.log('[offscreen] pcm chunk', pcmChunkCount, 'frames', event.data[0]?.length);
+      }
+    };
+
     activeStream = stream;
     audioContext = ctx;
+    pcmWorkletNode = workletNode;
     isCapturing = true;
 
     console.log('[offscreen] capture started successfully');
@@ -90,6 +112,12 @@ async function startCapture(streamId: string): Promise<void> {
 }
 
 async function stopCapture(): Promise<void> {
+  if (pcmWorkletNode) {
+    pcmWorkletNode.port.onmessage = null;
+    pcmWorkletNode.disconnect();
+    pcmWorkletNode = undefined;
+  }
+
   if (audioContext) {
     await audioContext.close().catch((error) => console.error('Failed to close AudioContext', error));
     audioContext = undefined;

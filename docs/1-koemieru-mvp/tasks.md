@@ -31,8 +31,10 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [ ] 残りの詳細確認（音声が途切れず再生され続けるか、Stopでクリーンに`Idle`へ戻るか、キャプチャ中にタブを閉じて`TAB_GONE`が表示されるか）は、タスク8〜9完了後の一括確認ラウンドに合わせて実施
 - [x] **6. PCM変換モジュール**
   - [x] 既知のFloat32のフィクスチャを使い、`lib/audio/pcm.ts`（`downmixToMono`、`resample`、`float32ToInt16PCM`、`int16ToBase64`）をTDDで実装 — chrome APIへの依存なし
-- [ ] **7. AudioWorkletタップの配線**
-  - [ ] オフスクリーンドキュメントの音声グラフからリアルタイムでタップし`lib/audio/pcm.ts`に流す。（まだWebSocketなし）チャンクをログ/カウントし、再生を壊さずに安定したケイデンスであることを確認
+- [x] **7. AudioWorkletタップの配線**
+  - [x] `public/pcm-worklet.js`（WXTにworklet専用エントリポイントがないため静的アセットとして配置）を`ctx.audioWorklet.addModule()`で読み込み、`source`から分岐した`AudioWorkletNode`でFloat32フレームをメインスレッドへ送る配線を追加。ワークレット内で約85ms（4096フレーム）単位にバッチしてpostMessageの頻度を抑えている
+  - [x] `lib/audio/pcm.ts`への実際の変換とWebSocket送信はタスク8で配線予定。現時点ではチャンク数をカウントしログ出力するのみ
+  - [ ] 手動確認（ログでケイデンスと再生への影響がないことを確認）は、タスク8〜9完了後の一括確認ラウンドに合わせて実施
 - [ ] **8. OpenAI Realtime WebSocket接続**
   - [ ] このステップを書く直前に、`developers.openai.com`で現行の文字起こしセッション設定JSONとイベント名を再検証する
   - [ ] フェイクのWebSocketに対して`lib/openai/realtimeSession.ts`のペイロード生成をTDDで実装
