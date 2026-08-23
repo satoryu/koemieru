@@ -1,9 +1,10 @@
 {
-  "name": "wxt-starter",
-  "description": "manifest.json description",
+  "name": "koemieru",
+  "description": "Turns audio playing in a browser tab into a real-time transcript in the side panel.",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
@@ -12,11 +13,14 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^8.1.5",
+    "vitest": "^4.1.11",
     "web-ext": "^10.5.0",
     "wxt": "^0.21.3"
   }

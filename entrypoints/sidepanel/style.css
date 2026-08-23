@@ -1,0 +1,63 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+body {
+  margin: 0;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.api-key-row {
+  display: flex;
+  gap: 6px;
+}
+
+.api-key-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.status {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 6px;
+  padding: 8px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.transcript .partial {
+  opacity: 0.6;
+  font-style: italic;
+}
