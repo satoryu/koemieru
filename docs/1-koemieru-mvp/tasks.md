@@ -21,13 +21,14 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [ ] 手動確認: パネルを閉じて再度開いてもキーが保持されている、ログに出力されない *(タスク5にまとめて実施)*
 - [x] **4. メッセージプロトコルの型定義**
   - [x] `lib/messaging/protocol.ts` の判別可能なユニオン型 + `isKoemieruMessage`/`isMessageOfType`ガード関数（テスト済み）
-- [ ] **5. オフスクリーンドキュメント + タブキャプチャのみの配線（OpenAIはまだ含まない）** — *実装中*
+- [x] **5. オフスクリーンドキュメント + タブキャプチャのみの配線（OpenAIはまだ含まない）**
   - [x] `entrypoints/offscreen/index.html`
-  - [ ] `entrypoints/offscreen/main.ts`: `getUserMedia`での引き換えと再生パススルーのみ
-  - [ ] `background.ts`: `ENSURE_OFFSCREEN_READY`の処理（作成 + リトライ付きレディ確認）、セッションの状態管理、`chrome.tabs.onRemoved` → `TAB_GONE`
-  - [ ] `sidepanel/main.ts`: Start/Stopのクリックハンドラ（`getMediaStreamId` → `START_CAPTURE` → ステータス更新）
-  - [ ] `wxt.config.ts`: `tabCapture`、`offscreen`権限を追加
-  - [ ] **手動確認（上記タスク2・3とまとめて実施）**: タブで音声を再生し、Startをクリックして音声が普通に再生され続けることを確認、Stopをクリックしてエラーが出ないことを確認。キャプチャ権限を拒否して明確なステータスが出ること（サイレントにハングしないこと）を確認。キャプチャ中にタブを閉じて`TAB_GONE`が表示されることを確認
+  - [x] `entrypoints/offscreen/main.ts`: `getUserMedia`での引き換えと再生パススルーのみ
+  - [x] `background.ts`: `ENSURE_OFFSCREEN_READY`の処理（作成 + リトライ付きレディ確認）、セッションの状態管理、`chrome.tabs.onRemoved` → `TAB_GONE`
+  - [x] `wxt.config.ts`: `tabCapture`、`offscreen`、`activeTab`権限を追加
+  - [x] **設計変更**: `chrome.tabCapture`が`activeTab`と同じ「ユーザーによる呼び出し」を要求し、かつサイドパネル内のボタンクリックはその資格を満たさない（Chromiumの意図的な仕様、Won't Fixのバグ報告あり）ことが判明。Startのトリガーをサイドパネル内ボタンからツールバーアイコンのクリック（`action.onClicked`）に変更。詳細は[design.md](design.md)
+  - [x] **手動確認（コア動作）**: 実機でログを追跡し、`action.onClicked` → `ENSURE_OFFSCREEN_READY` → `getMediaStreamId` → `START_CAPTURE` → `getUserMedia`成功 → `CAPTURE_STARTED`という一連の流れが動作し、サイドパネルのステータスが「Capturing tab audio…」になることを確認済み
+  - [ ] 残りの詳細確認（音声が途切れず再生され続けるか、Stopでクリーンに`Idle`へ戻るか、キャプチャ中にタブを閉じて`TAB_GONE`が表示されるか）は、タスク8〜9完了後の一括確認ラウンドに合わせて実施
 - [ ] **6. PCM変換モジュール**
   - [ ] 既知のFloat32のフィクスチャを使い、`lib/audio/pcm.ts`（`downmixToMono`、`resample`、`float32ToInt16PCM`、`int16ToBase64`）をTDDで実装 — chrome APIへの依存なし
 - [ ] **7. AudioWorkletタップの配線**
