@@ -77,6 +77,7 @@ interface RealtimeEvent {
   item_id?: string;
   delta?: string;
   transcript?: string;
+  error?: { message?: string; code?: string; type?: string };
 }
 
 export function parseRealtimeEvent(raw: string): RealtimeEvent | undefined {
@@ -102,6 +103,12 @@ export interface RealtimeSessionHandlers {
   onDelta?: (itemId: string, delta: string) => void;
   onFinal?: (itemId: string, transcript: string) => void;
   onError?: (error: unknown) => void;
+  /** A server-sent `{type: "error"}` event over the WebSocket (as opposed
+   * to a transport-level WebSocket error) — e.g. invalid config, quota
+   * exhausted. Usually followed shortly by onClose, whose CloseEvent.reason
+   * is typically empty (a web-platform restriction), so this is the only
+   * reliable way to get a human-readable reason for a connection drop. */
+  onServerError?: (message: string) => void;
   onClose?: (code: number, reason: string) => void;
 }
 
@@ -172,6 +179,7 @@ export function connectRealtimeSession(
       handlers.onFinal?.(parsed.item_id, parsed.transcript);
     } else if (parsed.type === 'error') {
       console.error('[realtimeSession] server-sent error event', parsed);
+      handlers.onServerError?.(parsed.error?.message ?? 'Unknown error from OpenAI.');
     }
     // Other event types (session.created, session.updated, input audio
     // buffer speech_started/stopped, etc.) are intentionally not treated

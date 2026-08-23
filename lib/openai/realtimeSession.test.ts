@@ -165,6 +165,31 @@ describe('connectRealtimeSession', () => {
     expect(onFinal).not.toHaveBeenCalled();
   });
 
+  it('routes a server-sent {type: "error"} event to onServerError with its message', () => {
+    const fakeWs = createFakeWebSocket();
+    const onServerError = vi.fn();
+    connectRealtimeSession('sk-test', { onServerError }, () => fakeWs);
+
+    fakeWs.onmessage?.({
+      data: JSON.stringify({
+        type: 'error',
+        error: { type: 'insufficient_quota', code: 'credit_balance_exhausted', message: 'No credits.' },
+      }),
+    });
+
+    expect(onServerError).toHaveBeenCalledWith('No credits.');
+  });
+
+  it('falls back to a generic message when a server error event has none', () => {
+    const fakeWs = createFakeWebSocket();
+    const onServerError = vi.fn();
+    connectRealtimeSession('sk-test', { onServerError }, () => fakeWs);
+
+    fakeWs.onmessage?.({ data: JSON.stringify({ type: 'error' }) });
+
+    expect(onServerError).toHaveBeenCalledWith('Unknown error from OpenAI.');
+  });
+
   it('forwards close events with code and reason', () => {
     const fakeWs = createFakeWebSocket();
     const onClose = vi.fn();

@@ -97,6 +97,11 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
     // Connect to OpenAI before wiring the PCM tap, so sendAudioChunk has
     // somewhere to send to as soon as chunks start arriving.
     await broadcast({ type: 'WS_CONNECTING' });
+    // CloseEvent.reason is typically empty (a web-platform restriction) —
+    // a preceding server-sent {type: "error"} event is usually the only
+    // way to get a human-readable reason for a connection drop, so stash
+    // it here and prefer it over the close event's own (likely blank) reason.
+    let lastServerErrorMessage: string | undefined;
     realtimeSession = connectRealtimeSession(apiKey, {
       onOpen: () => {
         console.log('[offscreen] realtime session open');
@@ -114,11 +119,14 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
         // this with a close event, which is where teardown+status happen.
         console.error('[offscreen] realtime session error', error);
       },
+      onServerError: (message) => {
+        lastServerErrorMessage = message;
+      },
       onClose: (code, reason) => {
         console.log('[offscreen] realtime session closed', { code, reason });
         if (!isCapturing) return; // already torn down via a deliberate stopCapture()
         teardownAudioResources();
-        void broadcast({ type: 'WS_CLOSED', code, reason });
+        void broadcast({ type: 'WS_CLOSED', code, reason: lastServerErrorMessage ?? reason });
       },
     });
 
