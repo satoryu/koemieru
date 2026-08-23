@@ -31,6 +31,7 @@ export default defineBackground(() => {
   });
 
   async function handleActionClick(tab: Browser.tabs.Tab): Promise<void> {
+    console.log('[background] action.onClicked', { tabId: tab.id, url: tab.url });
     if (tab.id === undefined) return;
     const tabId = tab.id;
 
@@ -42,11 +43,13 @@ export default defineBackground(() => {
       // Already capturing (this tab or another) — just surface the panel,
       // don't start a second pipeline. Stop first via the panel's Stop
       // button to start a different tab.
+      console.log('[background] already capturing tab', capturedTabId, '— not starting a new session');
       return;
     }
 
     const apiKey = await getApiKey();
     if (!apiKey) {
+      console.log('[background] no API key saved — aborting start');
       await broadcast({
         type: 'CAPTURE_FAILED',
         reason: 'UNKNOWN',
@@ -57,8 +60,10 @@ export default defineBackground(() => {
 
     try {
       await ensureOffscreenReady();
+      console.log('[background] offscreen document ready, minting stream id');
       const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: tabId });
       capturedTabId = tabId;
+      console.log('[background] sending START_CAPTURE', { tabId });
       await broadcast({ type: 'START_CAPTURE', streamId, tabId, apiKey });
     } catch (error) {
       console.error('Failed to start capture', error);

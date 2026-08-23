@@ -21,6 +21,7 @@ let isCapturing = false;
 
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isKoemieruMessage(message)) return undefined;
+  console.log('[offscreen] received message', message.type);
 
   switch (message.type) {
     case 'ENSURE_OFFSCREEN_READY':
@@ -43,7 +44,10 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function startCapture(streamId: string): Promise<void> {
+  console.log('[offscreen] startCapture', { streamId });
+
   if (isCapturing) {
+    console.warn('[offscreen] startCapture called while already capturing');
     await broadcast({ type: 'CAPTURE_FAILED', reason: 'UNKNOWN', detail: 'Already capturing.' });
     return;
   }
@@ -73,8 +77,10 @@ async function startCapture(streamId: string): Promise<void> {
     audioContext = ctx;
     isCapturing = true;
 
+    console.log('[offscreen] capture started successfully');
     await broadcast({ type: 'CAPTURE_STARTED' });
   } catch (error) {
+    console.error('[offscreen] getUserMedia failed', error);
     await broadcast({
       type: 'CAPTURE_FAILED',
       reason: classifyGetUserMediaError(error),
@@ -109,7 +115,10 @@ function classifyGetUserMediaError(error: unknown): CaptureFailureReason {
 }
 
 function broadcast(message: KoemieruMessage): Promise<unknown> {
+  console.log('[offscreen] broadcasting', message.type);
   // No listener (e.g. the side panel is closed) rejects with "Could not
   // establish connection" — safe to ignore, this is a fire-and-forget event.
-  return browser.runtime.sendMessage(message).catch(() => undefined);
+  return browser.runtime.sendMessage(message).catch((error) => {
+    console.warn('[offscreen] broadcast had no receiver (may be expected)', message.type, error);
+  });
 }
