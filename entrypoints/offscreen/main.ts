@@ -24,8 +24,14 @@ const OPENAI_INPUT_SAMPLE_RATE = 24000;
 // Turn detection (server VAD) is rejected by the API for this transcription
 // model, so we commit turns on a fixed cadence instead of relying on
 // speech-boundary detection — see lib/openai/realtimeSession.ts's
-// buildSessionUpdatePayload for the full explanation.
-const COMMIT_INTERVAL_MS = 2000;
+// buildSessionUpdatePayload for the full explanation. Committing mid-
+// sentence (which a short interval does often) hurts transcription
+// accuracy since the model gets less context per turn; a longer interval
+// gives each turn a better chance of containing a whole sentence, at the
+// cost of more transcript lag (which docs/1-koemieru-mvp/requirements.md
+// already accepts as a trade-off). 6s is a starting point, not a
+// carefully-tuned value — adjust based on how it sounds in practice.
+const COMMIT_INTERVAL_MS = 6000;
 
 let activeStream: MediaStream | undefined;
 let audioContext: AudioContext | undefined;
