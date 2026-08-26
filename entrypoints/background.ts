@@ -3,6 +3,7 @@ import type { Browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
 import type { KoemieruMessage } from '@/lib/messaging/protocol';
 import { getApiKey } from '@/lib/storage/apiKeyStore';
+import { getCommitStrategy } from '@/lib/storage/commitStrategyStore';
 
 const OFFSCREEN_URL = '/offscreen.html';
 const OFFSCREEN_JUSTIFICATION =
@@ -73,9 +74,10 @@ export default defineBackground(() => {
       await ensureOffscreenReady();
       console.log('[background] offscreen document ready, minting stream id');
       const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: tabId });
+      const commitStrategy = await getCommitStrategy();
       capturedTabId = tabId;
-      console.log('[background] sending START_CAPTURE', { tabId });
-      await broadcast({ type: 'START_CAPTURE', streamId, tabId, apiKey });
+      console.log('[background] sending START_CAPTURE', { tabId, commitStrategy });
+      await broadcast({ type: 'START_CAPTURE', streamId, tabId, apiKey, commitStrategy });
     } catch (error) {
       console.error('Failed to start capture', error);
       await broadcast({

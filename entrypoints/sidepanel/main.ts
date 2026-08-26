@@ -1,8 +1,9 @@
 import './style.css';
 import { browser } from 'wxt/browser';
 import { getApiKey, setApiKey } from '@/lib/storage/apiKeyStore';
+import { getCommitStrategy, setCommitStrategy } from '@/lib/storage/commitStrategyStore';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
-import type { CaptureFailureReason } from '@/lib/messaging/protocol';
+import type { CaptureFailureReason, CommitStrategyType } from '@/lib/messaging/protocol';
 import { createTranscriptStore } from '@/lib/transcript/transcriptStore';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -20,6 +21,18 @@ app.innerHTML = `
     tab-capture access from that click itself — a button in this panel can't
     trigger it.)
   </p>
+  <div class="commit-strategy-row">
+    <label for="commit-strategy">Turn commit:</label>
+    <select id="commit-strategy">
+      <option value="FIXED_INTERVAL">Fixed interval (6s)</option>
+      <option value="VAD">Simple VAD (pause detection)</option>
+    </select>
+  </div>
+  <p class="hint">
+    Controls when audio is sent for transcription. Fixed interval commits
+    every 6s regardless of speech; Simple VAD waits for a pause instead, to
+    avoid cutting mid-sentence. Takes effect on the next Start.
+  </p>
   <div class="controls">
     <button id="stop" type="button" disabled>Stop</button>
   </div>
@@ -29,6 +42,7 @@ app.innerHTML = `
 
 const apiKeyInput = document.querySelector<HTMLInputElement>('#api-key')!;
 const apiKeySavedIndicator = document.querySelector<HTMLSpanElement>('#api-key-saved')!;
+const commitStrategySelect = document.querySelector<HTMLSelectElement>('#commit-strategy')!;
 const stopButton = document.querySelector<HTMLButtonElement>('#stop')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 const transcriptEl = document.querySelector<HTMLDivElement>('#transcript')!;
@@ -37,6 +51,10 @@ const transcriptStore = createTranscriptStore();
 
 getApiKey().then((savedKey) => {
   if (savedKey) apiKeyInput.value = savedKey;
+});
+
+getCommitStrategy().then((strategy) => {
+  commitStrategySelect.value = strategy;
 });
 
 let savedIndicatorTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -49,6 +67,10 @@ apiKeyInput.addEventListener('change', () => {
       apiKeySavedIndicator.hidden = true;
     }, 1500);
   });
+});
+
+commitStrategySelect.addEventListener('change', () => {
+  void setCommitStrategy(commitStrategySelect.value as CommitStrategyType);
 });
 
 type UiState = 'idle' | 'active';

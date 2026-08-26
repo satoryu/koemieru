@@ -21,9 +21,22 @@
 
 export type CaptureFailureReason = 'PERMISSION_DENIED' | 'STREAM_ID_EXPIRED' | 'UNKNOWN';
 
+// Which lib/audio/commitStrategy.ts strategy the offscreen document should
+// use to decide when to send input_audio_buffer.commit — user-selectable
+// in the side panel (lib/storage/commitStrategyStore.ts) so the same audio
+// source can be compared under both. See commitStrategy.ts for the
+// trade-offs between them.
+export type CommitStrategyType = 'FIXED_INTERVAL' | 'VAD';
+
 export type KoemieruMessage =
   | { type: 'ENSURE_OFFSCREEN_READY' }
-  | { type: 'START_CAPTURE'; streamId: string; tabId: number; apiKey: string }
+  | {
+      type: 'START_CAPTURE';
+      streamId: string;
+      tabId: number;
+      apiKey: string;
+      commitStrategy: CommitStrategyType;
+    }
   | { type: 'CAPTURE_STARTED' }
   | { type: 'CAPTURE_FAILED'; reason: CaptureFailureReason; detail?: string }
   | { type: 'WS_CONNECTING' }

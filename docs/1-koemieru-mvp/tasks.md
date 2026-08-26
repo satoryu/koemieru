@@ -64,6 +64,13 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [ ] Startの連打で2つのパイプラインが生成されないようガードする
 - [ ] **11. 30分間の安定性シナリオ**（最終的な受け入れゲート。requirements.mdのTarget Validation Scenario参照）
   - [ ] シナリオを実施し、CLAUDE.mdのDefinition of Doneに従ってIssue/PRに結果を記録する
+- [x] **12. コミット方式の切り替え（精度改善、MVPのAcceptance Criteria外の追加作業）**
+  - [x] 固定間隔でのコミットは発話の途中で切れやすく精度が落ちるという実機での所感を受け、`lib/audio/commitStrategy.ts`をTDDで実装（固定間隔／簡易VADの2方式を共通インターフェースの下に統一）
+  - [x] `lib/storage/commitStrategyStore.ts`で選択を永続化（`apiKeyStore.ts`と同パターン）
+  - [x] `lib/messaging/protocol.ts`の`START_CAPTURE`に`commitStrategy`フィールドを追加
+  - [x] `background.ts`が保存済みの選択を読み取り`START_CAPTURE`に含める。`offscreen/main.ts`が選択に応じたストラテジーを生成して使用
+  - [x] サイドパネルにドロップダウンUIを追加（同一音源での比較用）
+  - [ ] 手動確認: 同じ音源で両方式を試し、簡易VADの方が文の途中で切れにくいか比較する
 
 ## 補足
 

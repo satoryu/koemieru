@@ -66,6 +66,8 @@ UIの状態（`idle | active`）を保持し、文字起こしの状態を描画
 | `lib/storage/apiKeyStore.ts` | `chrome.storage.local`の薄いラッパー | `wxt/testing/fake-browser`でテスト可能。`sync`ではなく意図的に`local`を使用 |
 | `lib/messaging/protocol.ts` | 判別可能なユニオン型のメッセージ定義とガード関数 | 個別にバンドルされる3つのエントリポイント間でのメッセージ形状のズレを防ぐ |
 | `lib/openai/realtimeSession.ts` | WebSocketのURL/サブプロトコル/ペイロードを組み立て、`onDelta`/`onFinal`/`onError`/`onClose`を公開する | フェイクのWebSocketに対してWebSocketプロトコル部分を単体テストできる |
+| `lib/audio/commitStrategy.ts` | `input_audio_buffer.commit`をいつ送るか決める2方式（固定間隔／簡易VAD）を共通インターフェースの下に実装 | 実機テストで固定間隔だと発話の途中で切れて精度が落ちることが判明し追加。サイドパネルのUIトグルで比較できるようにする（下記参照） |
+| `lib/storage/commitStrategyStore.ts` | 上記の選択を`chrome.storage.local`に永続化 | `apiKeyStore.ts`と同じパターン |
 
 それ以外（AudioContextのグラフ配線、`chrome.offscreen`呼び出し、DOM更新）はCLAUDE.mdの「先回りして再構成しない」方針に従い、各エントリポイント内にインラインで残す。
 

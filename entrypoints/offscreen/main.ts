@@ -1,7 +1,9 @@
 import { browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
-import type { CaptureFailureReason, KoemieruMessage } from '@/lib/messaging/protocol';
+import type { CaptureFailureReason, CommitStrategyType, KoemieruMessage } from '@/lib/messaging/protocol';
 import { downmixToMono, float32ToInt16PCM, int16ToBase64, resample } from '@/lib/audio/pcm';
+import { createFixedIntervalCommitStrategy, createVadCommitStrategy } from '@/lib/audio/commitStrategy';
+import type { CommitStrategy } from '@/lib/audio/commitStrategy';
 import { connectRealtimeSession } from '@/lib/openai/realtimeSession';
 import type { RealtimeSession } from '@/lib/openai/realtimeSession';
 
@@ -22,24 +24,23 @@ const PCM_WORKLET_URL = '/pcm-worklet.js';
 const PCM_WORKLET_PROCESSOR_NAME = 'pcm-capture-processor';
 const OPENAI_INPUT_SAMPLE_RATE = 24000;
 // Turn detection (server VAD) is rejected by the API for this transcription
-// model, so we commit turns on a fixed cadence instead of relying on
-// speech-boundary detection — see lib/openai/realtimeSession.ts's
-// buildSessionUpdatePayload for the full explanation. Committing mid-
-// sentence (which a short interval does often) hurts transcription
-// accuracy since the model gets less context per turn; a longer interval
-// gives each turn a better chance of containing a whole sentence, at the
-// cost of more transcript lag (which docs/1-koemieru-mvp/requirements.md
-// already accepts as a trade-off). 6s is a starting point, not a
-// carefully-tuned value — adjust based on how it sounds in practice.
-const COMMIT_INTERVAL_MS = 6000;
+// model, so a lib/audio/commitStrategy.ts strategy decides when to send
+// input_audio_buffer.commit instead — see that module for the trade-offs
+// between the two, and lib/openai/realtimeSession.ts's
+// buildSessionUpdatePayload for why server VAD isn't an option here.
+const FIXED_INTERVAL_COMMIT_MS = 6000;
 
 let activeStream: MediaStream | undefined;
 let audioContext: AudioContext | undefined;
 let pcmWorkletNode: AudioWorkletNode | undefined;
 let realtimeSession: RealtimeSession | undefined;
+let commitStrategy: CommitStrategy | undefined;
 let isCapturing = false;
 let pcmChunkCount = 0;
-let lastCommitAt = 0;
+
+function createCommitStrategy(type: CommitStrategyType): CommitStrategy {
+  return type === 'VAD' ? createVadCommitStrategy() : createFixedIntervalCommitStrategy(FIXED_INTERVAL_COMMIT_MS);
+}
 
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isKoemieruMessage(message)) return undefined;
@@ -53,7 +54,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return undefined;
 
     case 'START_CAPTURE':
-      void startCapture(message.streamId, message.apiKey);
+      void startCapture(message.streamId, message.apiKey, message.commitStrategy);
       return undefined;
 
     case 'STOP_CAPTURE':
@@ -65,8 +66,12 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function startCapture(streamId: string, apiKey: string): Promise<void> {
-  console.log('[offscreen] startCapture', { streamId });
+async function startCapture(
+  streamId: string,
+  apiKey: string,
+  commitStrategyType: CommitStrategyType,
+): Promise<void> {
+  console.log('[offscreen] startCapture', { streamId, commitStrategyType });
 
   if (isCapturing) {
     console.warn('[offscreen] startCapture called while already capturing');
@@ -144,7 +149,7 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
     const workletNode = new AudioWorkletNode(ctx, PCM_WORKLET_PROCESSOR_NAME);
     source.connect(workletNode);
     pcmChunkCount = 0;
-    lastCommitAt = Date.now();
+    commitStrategy = createCommitStrategy(commitStrategyType);
     workletNode.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
       pcmChunkCount++;
       if (pcmChunkCount % 12 === 1) {
@@ -152,15 +157,15 @@ async function startCapture(streamId: string, apiKey: string): Promise<void> {
       }
 
       const mono = downmixToMono(event.data);
+      const chunkDurationMs = (mono.length / ctx.sampleRate) * 1000;
       const resampled = resample(mono, ctx.sampleRate, OPENAI_INPUT_SAMPLE_RATE);
       const pcm16 = float32ToInt16PCM(resampled);
       realtimeSession?.sendAudioChunk(int16ToBase64(pcm16));
 
-      const now = Date.now();
-      if (now - lastCommitAt >= COMMIT_INTERVAL_MS) {
+      if (commitStrategy?.shouldCommit(mono, chunkDurationMs)) {
         console.log('[offscreen] committing audio turn');
         realtimeSession?.commit();
-        lastCommitAt = now;
+        commitStrategy.reset();
       }
     };
     pcmWorkletNode = workletNode;
@@ -201,6 +206,7 @@ function teardownAudioResources(): void {
   activeStream?.getTracks().forEach((track) => track.stop());
   activeStream = undefined;
   realtimeSession = undefined;
+  commitStrategy = undefined;
   isCapturing = false;
 }
 
