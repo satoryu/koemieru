@@ -71,6 +71,10 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [x] `background.ts`が保存済みの選択を読み取り`START_CAPTURE`に含める。`offscreen/main.ts`が選択に応じたストラテジーを生成して使用
   - [x] サイドパネルにドロップダウンUIを追加（同一音源での比較用）
   - [ ] 手動確認: 同じ音源で両方式を試し、簡易VADの方が文の途中で切れにくいか比較する
+- [x] **13. 文字起こしのコピー機能（MVPのAcceptance Criteria外の追加作業）**
+  - [x] `lib/transcript/transcriptStore.ts`に`transcriptStateToText()`をTDDで追加（確定セグメント+進行中テキストをプレーンテキスト化）
+  - [x] サイドパネルに「Copy transcript」ボタンを追加。`navigator.clipboard.writeText()`でコピーし、「Copied」の一時表示でフィードバック。文字起こしが空の間はボタンを無効化
+  - [ ] 手動確認: コピーしたテキストを実際に貼り付けて内容が正しいか確認
 
 ## 補足
 

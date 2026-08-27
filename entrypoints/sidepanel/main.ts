@@ -4,7 +4,7 @@ import { getApiKey, setApiKey } from '@/lib/storage/apiKeyStore';
 import { getCommitStrategy, setCommitStrategy } from '@/lib/storage/commitStrategyStore';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
 import type { CaptureFailureReason, CommitStrategyType } from '@/lib/messaging/protocol';
-import { createTranscriptStore } from '@/lib/transcript/transcriptStore';
+import { createTranscriptStore, transcriptStateToText } from '@/lib/transcript/transcriptStore';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -35,6 +35,8 @@ app.innerHTML = `
   </p>
   <div class="controls">
     <button id="stop" type="button" disabled>Stop</button>
+    <button id="copy" type="button" disabled>Copy transcript</button>
+    <span id="copy-done" class="saved-indicator" hidden>Copied</span>
   </div>
   <div id="status" class="status">Idle</div>
   <div id="transcript" class="transcript"></div>
@@ -44,6 +46,8 @@ const apiKeyInput = document.querySelector<HTMLInputElement>('#api-key')!;
 const apiKeySavedIndicator = document.querySelector<HTMLSpanElement>('#api-key-saved')!;
 const commitStrategySelect = document.querySelector<HTMLSelectElement>('#commit-strategy')!;
 const stopButton = document.querySelector<HTMLButtonElement>('#stop')!;
+const copyButton = document.querySelector<HTMLButtonElement>('#copy')!;
+const copyDoneIndicator = document.querySelector<HTMLSpanElement>('#copy-done')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 const transcriptEl = document.querySelector<HTMLDivElement>('#transcript')!;
 
@@ -112,6 +116,8 @@ function renderTranscript(): void {
   }
 
   if (wasAtBottom) transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+  copyButton.disabled = state.segments.length === 0 && !state.inProgress;
 }
 
 stopButton.addEventListener('click', () => {
@@ -122,6 +128,29 @@ async function handleStop(): Promise<void> {
   setUiState('idle');
   setStatus('Stopping…');
   await browser.runtime.sendMessage({ type: 'STOP_CAPTURE' }).catch(() => undefined);
+}
+
+let copyDoneTimeout: ReturnType<typeof setTimeout> | undefined;
+
+copyButton.addEventListener('click', () => {
+  void handleCopy();
+});
+
+async function handleCopy(): Promise<void> {
+  const text = transcriptStateToText(transcriptStore.getState());
+  if (!text) return;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    copyDoneIndicator.hidden = false;
+    clearTimeout(copyDoneTimeout);
+    copyDoneTimeout = setTimeout(() => {
+      copyDoneIndicator.hidden = true;
+    }, 1500);
+  } catch (error) {
+    console.error('Failed to copy transcript', error);
+    setStatus('Could not copy the transcript. See console for details.');
+  }
 }
 
 browser.runtime.onMessage.addListener((message) => {

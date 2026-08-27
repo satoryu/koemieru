@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTranscriptStore } from './transcriptStore';
+import { createTranscriptStore, transcriptStateToText } from './transcriptStore';
 
 describe('createTranscriptStore', () => {
   it('starts empty', () => {
@@ -103,5 +103,32 @@ describe('createTranscriptStore', () => {
     store.applyFinal('item_1', 'From a new session.');
 
     expect(store.getState().segments).toEqual(['From a new session.']);
+  });
+});
+
+describe('transcriptStateToText', () => {
+  it('returns an empty string for empty state', () => {
+    expect(transcriptStateToText({ segments: [], inProgress: undefined })).toBe('');
+  });
+
+  it('joins finalized segments with a blank line between them', () => {
+    expect(
+      transcriptStateToText({ segments: ['First.', 'Second.'], inProgress: undefined }),
+    ).toBe('First.\n\nSecond.');
+  });
+
+  it('appends the in-progress text after the finalized segments', () => {
+    expect(
+      transcriptStateToText({
+        segments: ['First.'],
+        inProgress: { itemId: 'item_2', text: 'Second (partial' },
+      }),
+    ).toBe('First.\n\nSecond (partial');
+  });
+
+  it('includes only the in-progress text when there are no finalized segments yet', () => {
+    expect(
+      transcriptStateToText({ segments: [], inProgress: { itemId: 'item_1', text: 'Hel' } }),
+    ).toBe('Hel');
   });
 });

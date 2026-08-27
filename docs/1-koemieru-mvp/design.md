@@ -62,7 +62,7 @@ UIの状態（`idle | active`）を保持し、文字起こしの状態を描画
 | モジュール | 役割 | 切り出す理由 |
 |---|---|---|
 | `lib/audio/pcm.ts` | ダウンミックス、リサンプル、Float32→Int16、base64エンコード | 純粋関数でchrome APIへの依存がなく、微妙なミスをしやすい — 単体テストの価値が最も高い |
-| `lib/transcript/transcriptStore.ts` | delta/finalイベントを重複のない描画可能な文字起こし状態にマージする | 「重複させない」という受け入れ基準を直接テストできる |
+| `lib/transcript/transcriptStore.ts` | delta/finalイベントを重複のない描画可能な文字起こし状態にマージする（`transcriptStateToText()`でプレーンテキスト化しコピーボタンにも使用） | 「重複させない」という受け入れ基準を直接テストできる |
 | `lib/storage/apiKeyStore.ts` | `chrome.storage.local`の薄いラッパー | `wxt/testing/fake-browser`でテスト可能。`sync`ではなく意図的に`local`を使用 |
 | `lib/messaging/protocol.ts` | 判別可能なユニオン型のメッセージ定義とガード関数 | 個別にバンドルされる3つのエントリポイント間でのメッセージ形状のズレを防ぐ |
 | `lib/openai/realtimeSession.ts` | WebSocketのURL/サブプロトコル/ペイロードを組み立て、`onDelta`/`onFinal`/`onError`/`onClose`を公開する | フェイクのWebSocketに対してWebSocketプロトコル部分を単体テストできる |

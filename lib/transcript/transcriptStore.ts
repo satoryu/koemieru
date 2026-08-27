@@ -83,3 +83,12 @@ export function createTranscriptStore(): TranscriptStore {
     },
   };
 }
+
+/** Renders a TranscriptState as plain text (e.g. for copy-to-clipboard),
+ * matching how the side panel visually joins segments (see renderTranscript
+ * in entrypoints/sidepanel/main.ts). */
+export function transcriptStateToText(state: TranscriptState): string {
+  const parts = [...state.segments];
+  if (state.inProgress) parts.push(state.inProgress.text);
+  return parts.join('\n\n');
+}
