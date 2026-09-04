@@ -3,7 +3,11 @@ import { browser } from 'wxt/browser';
 import { getApiKey, setApiKey } from '@/lib/storage/apiKeyStore';
 import { getCommitStrategy, setCommitStrategy } from '@/lib/storage/commitStrategyStore';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
-import type { CaptureFailureReason, CommitStrategyType } from '@/lib/messaging/protocol';
+import type {
+  CaptureFailureReason,
+  CaptureState,
+  CommitStrategyType,
+} from '@/lib/messaging/protocol';
 import { createTranscriptStore, transcriptStateToText } from '@/lib/transcript/transcriptStore';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -60,6 +64,25 @@ getApiKey().then((savedKey) => {
 getCommitStrategy().then((strategy) => {
   commitStrategySelect.value = strategy;
 });
+
+// This panel is a fresh document every time it's opened, so a capture
+// started before it opened would otherwise leave Stop greyed out with no way
+// to end the session from the UI — while transcript deltas kept arriving
+// under an "Idle" label. Ask the offscreen document what's actually going on.
+// The transcript from before this panel opened is genuinely gone (the store
+// lives here, not in the offscreen document), so say so rather than implying
+// the session just started.
+void syncToRunningCapture();
+
+async function syncToRunningCapture(): Promise<void> {
+  const state = await browser.runtime
+    .sendMessage({ type: 'GET_CAPTURE_STATE' })
+    .catch(() => undefined) as CaptureState | undefined;
+  if (!state?.isCapturing) return;
+
+  setUiState('active');
+  setStatus('Capturing tab audio… (transcript from before this panel opened is not shown)');
+}
 
 let savedIndicatorTimeout: ReturnType<typeof setTimeout> | undefined;
 
@@ -186,7 +209,9 @@ browser.runtime.onMessage.addListener((message) => {
       break;
 
     case 'CAPTURE_FAILED':
-      setUiState('idle');
+      // ALREADY_CAPTURING means the existing session is still running, so
+      // Stop must stay available — it's the only way to end it.
+      setUiState(message.reason === 'ALREADY_CAPTURING' ? 'active' : 'idle');
       setStatus(describeCaptureFailure(message.reason, message.detail));
       break;
 
@@ -211,6 +236,8 @@ function describeCaptureFailure(reason: CaptureFailureReason, detail?: string): 
       return 'Tab audio capture permission was denied.';
     case 'STREAM_ID_EXPIRED':
       return 'Capture could not start (the tab may have changed). Click the icon again.';
+    case 'ALREADY_CAPTURING':
+      return 'Already capturing. Stop the current session before starting another tab.';
     default:
       return detail ? `Capture failed: ${detail}` : 'Capture failed. See console for details.';
   }

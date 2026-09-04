@@ -19,7 +19,15 @@
 // panel (see entrypoints/background.ts for the full explanation and a link
 // to the relevant Chromium bug).
 
-export type CaptureFailureReason = 'PERMISSION_DENIED' | 'STREAM_ID_EXPIRED' | 'UNKNOWN';
+export type CaptureFailureReason =
+  | 'PERMISSION_DENIED'
+  | 'STREAM_ID_EXPIRED'
+  // A START_CAPTURE arrived while the offscreen document was already
+  // capturing. Unlike every other failure this one means a session is still
+  // healthy and running, so background.ts must NOT tear the offscreen
+  // document down in response — doing so would destroy the live capture.
+  | 'ALREADY_CAPTURING'
+  | 'UNKNOWN';
 
 // Which lib/audio/commitStrategy.ts strategy the offscreen document should
 // use to decide when to send input_audio_buffer.commit — user-selectable
@@ -28,8 +36,20 @@ export type CaptureFailureReason = 'PERMISSION_DENIED' | 'STREAM_ID_EXPIRED' | '
 // trade-offs between them.
 export type CommitStrategyType = 'FIXED_INTERVAL' | 'VAD';
 
+/** The offscreen document's reply to GET_CAPTURE_STATE. */
+export interface CaptureState {
+  isCapturing: boolean;
+}
+
 export type KoemieruMessage =
   | { type: 'ENSURE_OFFSCREEN_READY' }
+  // Asks the offscreen document — the only context that actually knows —
+  // whether a capture is running, answered with a CaptureState. Both the
+  // background (whose module state doesn't survive being idle-killed) and
+  // the side panel (a fresh document every time it opens) need this rather
+  // than trusting their own memory. No offscreen document means no capture,
+  // so a rejected sendMessage is the answer "not capturing".
+  | { type: 'GET_CAPTURE_STATE' }
   | {
       type: 'START_CAPTURE';
       streamId: string;

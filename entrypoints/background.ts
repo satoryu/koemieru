@@ -1,8 +1,13 @@
 import { browser } from 'wxt/browser';
 import type { Browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
-import type { KoemieruMessage } from '@/lib/messaging/protocol';
+import type { CaptureState, KoemieruMessage } from '@/lib/messaging/protocol';
 import { getApiKey } from '@/lib/storage/apiKeyStore';
+import {
+  clearCapturedTabId,
+  getCapturedTabId,
+  setCapturedTabId,
+} from '@/lib/storage/captureSessionStore';
 import { getCommitStrategy } from '@/lib/storage/commitStrategyStore';
 
 const OFFSCREEN_URL = '/offscreen.html';
@@ -25,7 +30,13 @@ export default defineBackground(() => {
   // DOM/Web Audio access, and it's idle-killed after ~30s) — it only owns
   // the offscreen document's lifecycle and tracks which tab is being
   // captured.
-  let capturedTabId: number | undefined;
+  //
+  // That ~30s matters: this worker dies during any pause with no
+  // transcription events to wake it, while the offscreen document keeps
+  // capturing. So neither "is a capture running" nor "which tab" may live in
+  // a module variable here — the first is answered by the offscreen document
+  // itself (GET_CAPTURE_STATE), the second by storage.session
+  // (lib/storage/captureSessionStore.ts).
 
   // IMPORTANT: capture must start from `action.onClicked`, not a button
   // inside the side panel. Chrome's `activeTab`/`tabCapture` grant requires
@@ -51,11 +62,11 @@ export default defineBackground(() => {
       .open({ tabId })
       .catch((error) => console.error('Failed to open side panel', error));
 
-    if (capturedTabId !== undefined) {
+    if (await isOffscreenCapturing()) {
       // Already capturing (this tab or another) — just surface the panel,
       // don't start a second pipeline. Stop first via the panel's Stop
       // button to start a different tab.
-      console.log('[background] already capturing tab', capturedTabId, '— not starting a new session');
+      console.log('[background] already capturing — not starting a new session');
       return;
     }
 
@@ -75,7 +86,7 @@ export default defineBackground(() => {
       console.log('[background] offscreen document ready, minting stream id');
       const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: tabId });
       const commitStrategy = await getCommitStrategy();
-      capturedTabId = tabId;
+      await setCapturedTabId(tabId);
       console.log('[background] sending START_CAPTURE', { tabId, commitStrategy });
       await broadcast({ type: 'START_CAPTURE', streamId, tabId, apiKey, commitStrategy });
     } catch (error) {
@@ -103,13 +114,21 @@ export default defineBackground(() => {
         return true; // keep the message channel open for the async response
 
       case 'CAPTURE_FAILED':
+        // ALREADY_CAPTURING is the one failure that reports a *healthy*
+        // session: the offscreen document refused a second START_CAPTURE.
+        // Tearing it down here would destroy the very capture it was
+        // protecting — abruptly, with the WebSocket never closed and the
+        // last buffered audio never committed.
+        if (message.reason === 'ALREADY_CAPTURING') return undefined;
+        endSession();
+        return undefined;
+
       case 'CAPTURE_STOPPED':
       case 'WS_CLOSED':
         // WS_CLOSED means the offscreen document already tore its own
         // resources down (see its onClose handler) after an unexpected
         // OpenAI connection drop — treat it as a session end here too.
-        capturedTabId = undefined;
-        closeOffscreenDocument();
+        endSession();
         return undefined;
 
       default:
@@ -118,12 +137,39 @@ export default defineBackground(() => {
   });
 
   browser.tabs.onRemoved.addListener((tabId) => {
-    if (tabId !== capturedTabId) return;
-    capturedTabId = undefined;
-    broadcast({ type: 'TAB_GONE', tabId });
-    broadcast({ type: 'STOP_CAPTURE' });
+    void handleTabRemoved(tabId);
   });
+
+  async function handleTabRemoved(tabId: number): Promise<void> {
+    if (tabId !== (await getCapturedTabId())) return;
+    await clearCapturedTabId();
+    await broadcast({ type: 'TAB_GONE', tabId });
+    await broadcast({ type: 'STOP_CAPTURE' });
+  }
+
+  function endSession(): void {
+    void clearCapturedTabId();
+    closeOffscreenDocument();
+  }
 });
+
+/** Whether a capture is actually running, according to the only context that
+ * knows. No offscreen document means no capture, so this never creates one
+ * just to ask. */
+async function isOffscreenCapturing(): Promise<boolean> {
+  if (!(await hasOffscreenDocument())) return false;
+  try {
+    const state = (await browser.runtime.sendMessage({
+      type: 'GET_CAPTURE_STATE',
+    })) as CaptureState | undefined;
+    return state?.isCapturing === true;
+  } catch (error) {
+    // A document that exists but doesn't answer isn't capturing anything
+    // usable — let the caller start fresh rather than blocking forever.
+    console.warn('[background] offscreen document did not report its state', error);
+    return false;
+  }
+}
 
 async function ensureOffscreenReady(): Promise<void> {
   if (!(await hasOffscreenDocument())) {

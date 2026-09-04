@@ -1,6 +1,11 @@
 import { browser } from 'wxt/browser';
 import { isKoemieruMessage } from '@/lib/messaging/protocol';
-import type { CaptureFailureReason, CommitStrategyType, KoemieruMessage } from '@/lib/messaging/protocol';
+import type {
+  CaptureFailureReason,
+  CaptureState,
+  CommitStrategyType,
+  KoemieruMessage,
+} from '@/lib/messaging/protocol';
 import { downmixToMono, float32ToInt16PCM, int16ToBase64, resample } from '@/lib/audio/pcm';
 import { createFixedIntervalCommitStrategy, createVadCommitStrategy } from '@/lib/audio/commitStrategy';
 import type { CommitStrategy } from '@/lib/audio/commitStrategy';
@@ -53,6 +58,13 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({});
       return undefined;
 
+    case 'GET_CAPTURE_STATE':
+      // This document owns the MediaStream and the WebSocket, so it is the
+      // only context whose answer is authoritative — the background's own
+      // bookkeeping is lost whenever its service worker is idle-killed.
+      sendResponse({ isCapturing } satisfies CaptureState);
+      return undefined;
+
     case 'START_CAPTURE':
       void startCapture(message.streamId, message.apiKey, message.commitStrategy);
       return undefined;
@@ -74,8 +86,14 @@ async function startCapture(
   console.log('[offscreen] startCapture', { streamId, commitStrategyType });
 
   if (isCapturing) {
+    // Reported as its own reason so background.ts knows the running session
+    // is fine and must be left alone — see CaptureFailureReason.
     console.warn('[offscreen] startCapture called while already capturing');
-    await broadcast({ type: 'CAPTURE_FAILED', reason: 'UNKNOWN', detail: 'Already capturing.' });
+    await broadcast({
+      type: 'CAPTURE_FAILED',
+      reason: 'ALREADY_CAPTURING',
+      detail: 'Already capturing this or another tab.',
+    });
     return;
   }
 

@@ -61,7 +61,12 @@ TDDの進め方：各ステップは、次に進む前にそれぞれ独立し�
   - [ ] 文字起こしの重複がないか・自動スクロールが正しく動くか
   - [ ] 拡張機能を再読み込みせずにStart→Stop→Startを繰り返す
   - [ ] `chrome://extensions`のサービスワーカーインスペクタで、開いたままのソケットやオフスクリーンドキュメントが残っていないか確認
-  - [ ] Startの連打で2つのパイプラインが生成されないようガードする
+  - [x] Startの連打で2つのパイプラインが生成されないようガードする
+  - [x] **セルフレビューで判明した実バグ2件を修正**（[PR #3のレビューコメント](https://github.com/satoryu/koemieru/pull/3#issuecomment-5542837332)）。どちらも「サービスワーカーのメモリを永続的な状態として扱っていた」ことが原因で、共通の仕組み（`GET_CAPTURE_STATE`＋`storage.session`）で解消した
+    - [x] SWが約30秒のアイドルで停止すると`capturedTabId`が消え、その状態でアイコンを押すとガードをすり抜けて`CAPTURE_FAILED`→`closeOffscreenDocument()`と進み、**稼働中のキャプチャを異常終了させていた**。キャプチャ中かどうかの判定を、唯一それを知っているオフスクリーンドキュメントへの`GET_CAPTURE_STATE`問い合わせに変更。あわせて「既にキャプチャ中」を専用の失敗理由`ALREADY_CAPTURING`にし、backgroundがこれを受けても破棄しないようにした
+    - [x] 同じ原因で、SW再起動後は`tabs.onRemoved`の比較対象も`undefined`になり**`TAB_GONE`が発火しなかった**。`lib/storage/captureSessionStore.ts`（`storage.session`）を追加してtabIdを永続化（TDD、6ケース）
+    - [x] サイドパネルを開き直すと`#stop`が無効のままで、**キャプチャ中なのに停止手段がUI上に存在しなかった**。パネル読み込み時に`GET_CAPTURE_STATE`で状態を同期するようにした（それ以前の文字起こしは復元できない旨をステータスに明示）
+    - [x] `downmixToMono`がモノラル時のみ入力配列をそのまま返していたエイリアシングの罠を解消（`first.slice()`）
 - [ ] **11. 30分間の安定性シナリオ**（最終的な受け入れゲート。requirements.mdのTarget Validation Scenario参照）
   - [ ] シナリオを実施し、CLAUDE.mdのDefinition of Doneに従ってIssue/PRに結果を記録する
 - [x] **12. コミット方式の切り替え（精度改善、MVPのAcceptance Criteria外の追加作業）**

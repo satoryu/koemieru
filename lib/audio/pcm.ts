@@ -8,7 +8,10 @@
 export function downmixToMono(channels: Float32Array[]): Float32Array {
   const first = channels[0];
   if (!first) return new Float32Array(0);
-  if (channels.length === 1) return first;
+  // Copy rather than hand back the caller's array: the multi-channel branch
+  // below allocates, and a function that sometimes aliases its input and
+  // sometimes doesn't is a trap for whoever writes to the result next.
+  if (channels.length === 1) return first.slice();
 
   const output = new Float32Array(first.length);
   for (let i = 0; i < first.length; i++) {
