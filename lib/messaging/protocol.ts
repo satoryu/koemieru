@@ -8,7 +8,9 @@
 //   background -> offscreen             (START_CAPTURE, STOP_CAPTURE, ENSURE_OFFSCREEN_READY as a readiness ping)
 //   background -> sidepanel             (CAPTURE_FAILED when no API key is saved, TAB_GONE)
 //   offscreen -> background, sidepanel  (CAPTURE_STARTED/FAILED, WS_*, TRANSCRIPT_*, CAPTURE_STOPPED — background
-//                                        observes these passively for its own session bookkeeping)
+//                                        observes these passively for its own session bookkeeping; WS_RECONNECTING
+//                                        is for the side panel's status text only, and background deliberately
+//                                        ignores it so it doesn't tear the offscreen document down mid-reconnect)
 //   sidepanel -> offscreen, background  (STOP_CAPTURE, from the panel's Stop button)
 //
 // START_CAPTURE is minted and sent by background.ts's `action.onClicked`
@@ -61,6 +63,12 @@ export type KoemieruMessage =
   | { type: 'CAPTURE_FAILED'; reason: CaptureFailureReason; detail?: string }
   | { type: 'WS_CONNECTING' }
   | { type: 'WS_OPEN' }
+  // The connection dropped but is being rebuilt automatically (see
+  // lib/openai/reconnectingSession.ts). The capture itself is untouched —
+  // this is a status update, not a session end.
+  | { type: 'WS_RECONNECTING'; attempt: number; maxAttempts: number; reason?: string }
+  // The session is over: reconnection was abandoned or the error was fatal.
+  // background.ts treats this as the end of a capture session.
   | { type: 'WS_CLOSED'; code?: number; reason?: string }
   | { type: 'WS_ERROR'; code?: number; reason?: string }
   | { type: 'TRANSCRIPT_DELTA'; itemId: string; delta: string }

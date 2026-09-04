@@ -9,7 +9,7 @@ import type {
 import { downmixToMono, float32ToInt16PCM, int16ToBase64, resample } from '@/lib/audio/pcm';
 import { createFixedIntervalCommitStrategy, createVadCommitStrategy } from '@/lib/audio/commitStrategy';
 import type { CommitStrategy } from '@/lib/audio/commitStrategy';
-import { connectRealtimeSession } from '@/lib/openai/realtimeSession';
+import { createReconnectingRealtimeSession } from '@/lib/openai/reconnectingSession';
 import type { RealtimeSession } from '@/lib/openai/realtimeSession';
 
 // Chrome's tab-capture constraint shape is a non-standard, Chrome-only
@@ -126,15 +126,25 @@ async function startCapture(
     // Connect to OpenAI before wiring the PCM tap, so sendAudioChunk has
     // somewhere to send to as soon as chunks start arriving.
     await broadcast({ type: 'WS_CONNECTING' });
-    // CloseEvent.reason is typically empty (a web-platform restriction) —
-    // a preceding server-sent {type: "error"} event is usually the only
-    // way to get a human-readable reason for a connection drop, so stash
-    // it here and prefer it over the close event's own (likely blank) reason.
-    let lastServerErrorMessage: string | undefined;
-    realtimeSession = connectRealtimeSession(apiKey, {
+    // A dropped connection is rebuilt automatically underneath (an OpenAI
+    // Realtime session is capped at 60 minutes, which a lecture routinely
+    // outlasts — see docs/2-auto-reconnect/). The audio graph above is
+    // deliberately left running through a reconnect: the tab stays audible,
+    // and the tabCapture grant (which needs a user gesture we can't
+    // manufacture) is never given up.
+    realtimeSession = createReconnectingRealtimeSession(apiKey, {
       onOpen: () => {
         console.log('[offscreen] realtime session open');
         void broadcast({ type: 'WS_OPEN' });
+      },
+      onReconnecting: (attempt, maxAttempts, reason) => {
+        console.warn('[offscreen] realtime session dropped, reconnecting', { attempt, reason });
+        void broadcast({ type: 'WS_RECONNECTING', attempt, maxAttempts, reason });
+      },
+      onReconnected: () => {
+        // The new connection starts a fresh turn, so don't carry the
+        // outage's elapsed time into this turn's length.
+        commitStrategy?.reset();
       },
       onDelta: (itemId, delta) => {
         void broadcast({ type: 'TRANSCRIPT_DELTA', itemId, delta });
@@ -145,17 +155,17 @@ async function startCapture(
       onError: (error) => {
         // WebSocket error events carry no diagnostic detail by design (a
         // web-platform privacy restriction) — the browser always follows
-        // this with a close event, which is where teardown+status happen.
+        // this with a close event, which is where the decision to retry or
+        // give up happens.
         console.error('[offscreen] realtime session error', error);
       },
-      onServerError: (message) => {
-        lastServerErrorMessage = message;
-      },
       onClose: (code, reason) => {
-        console.log('[offscreen] realtime session closed', { code, reason });
+        // Only reached once reconnection has been abandoned or ruled out —
+        // i.e. the session is genuinely over.
+        console.log('[offscreen] realtime session ended', { code, reason });
         if (!isCapturing) return; // already torn down via a deliberate stopCapture()
         teardownAudioResources();
-        void broadcast({ type: 'WS_CLOSED', code, reason: lastServerErrorMessage ?? reason });
+        void broadcast({ type: 'WS_CLOSED', code, reason });
       },
     });
 
@@ -223,6 +233,13 @@ function teardownAudioResources(): void {
 
   activeStream?.getTracks().forEach((track) => track.stop());
   activeStream = undefined;
+
+  // Closing before dropping the reference matters now that the session
+  // reconnects on its own: a session let go of while still live would keep
+  // rebuilding its WebSocket forever with nothing left feeding it. Safe to
+  // call redundantly — stopCapture() and the terminal onClose both already
+  // closed it by the time they get here.
+  realtimeSession?.close();
   realtimeSession = undefined;
   commitStrategy = undefined;
   isCapturing = false;
