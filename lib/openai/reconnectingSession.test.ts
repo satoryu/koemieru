@@ -440,6 +440,31 @@ describe('createReconnectingRealtimeSession', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('ends the session instead of throwing when rebuilding the connection fails', () => {
+    // `new WebSocket()` throws synchronously for an unusable URL or
+    // subprotocol. Inside a timer callback that throw reaches nobody, and
+    // the session would hang: no further attempts, and no onClose to tell
+    // the offscreen document to stop capturing.
+    const sockets: FakeWebSocket[] = [];
+    const factory = (): WebSocketLike => {
+      if (sockets.length > 0) throw new SyntaxError('unusable subprotocol');
+      const socket = createFakeWebSocket();
+      sockets.push(socket);
+      return socket as unknown as WebSocketLike;
+    };
+    const onClose = vi.fn();
+    createReconnectingRealtimeSession(
+      'sk-test',
+      { onClose },
+      { createWebSocket: factory, backoffMs: [500] },
+    );
+    sockets[0]!.onopen?.();
+    sockets[0]!.onclose?.({ code: 1006, reason: 'dropped' });
+
+    expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('ignores audio sent after the session has ended', () => {
     const ws = createFakeWebSocketFactory();
     const session = createReconnectingRealtimeSession('sk-test', {}, { createWebSocket: ws.factory });

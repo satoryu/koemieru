@@ -175,7 +175,18 @@ export function createReconnectingRealtimeSession(
     handlers.onReconnecting?.(attempt, maxAttempts, detail);
     reconnectTimer = setTimeout(() => {
       generation++;
-      connect();
+      try {
+        connect();
+      } catch (error) {
+        // `new WebSocket()` throws synchronously for an unusable URL or
+        // subprotocol. Thrown from a timer callback it would reach nobody,
+        // stranding the session: no further attempts and no onClose, so the
+        // offscreen document would go on capturing with nothing to send to
+        // and no error to show.
+        console.error('[reconnectingSession] failed to rebuild the connection', error);
+        handlers.onError?.(error);
+        finish(code, detail ?? reason);
+      }
     }, delay);
   }
 

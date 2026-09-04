@@ -8,7 +8,7 @@ TDDで進める。再接続の中核ロジックはフェイクWebSocket + 擬�
   - [x] GitHub Issue [#2](https://github.com/satoryu/koemieru/issues/2) を作成
   - [x] ブランチ`feature/2-auto-reconnect`を作成
   - [x] `docs/2-auto-reconnect/{requirements,design,tasks}.md`を作成
-  - [x] **注意**: `main`にはまだMVPのコードが入っていないため、このブランチは`feature/1-koemieru-mvp`から切っている。MVPのPRが先にmergeされた時点で`main`にrebaseする
+  - [x] `feature/1-koemieru-mvp`から分岐していたため、[PR #3](https://github.com/satoryu/koemieru/pull/3)のマージ後に`main`へrebase済み（[PR #4](https://github.com/satoryu/koemieru/pull/4)の差分は再接続分の11ファイルのみ）
 - [x] **1. `onServerError`のシグネチャ拡張**
   - [x] `lib/openai/realtimeSession.test.ts`を`(message, code, errorType)`を期待するよう更新（レッド）
   - [x] `lib/openai/realtimeSession.ts`の`RealtimeSessionHandlers`と呼び出し箇所を更新（グリーン）
@@ -26,6 +26,7 @@ TDDで進める。再接続の中核ロジックはフェイクWebSocket + 擬�
   - [x] 接続が安定閾値（10秒）を超えて開いていたら試行回数をリセットする
   - [x] `item_id`に接続世代を前置する（`0:item_x` → 再接続後は`1:item_x`）
   - [x] 初回オープンでは`onReconnected`を呼ばず、再接続の成功時のみ呼ぶ
+  - [x] **セルフレビューで追加**: 再接続タイマー内で`connect()`が例外を投げた場合（`new WebSocket()`は不正なサブプロトコルに対して同期的にthrowする）、タイマーコールバック内の例外は誰も捕捉できず、再試行もされず`onClose`も飛ばないままセッションが宙吊りになる。オフスクリーンドキュメントは送り先を失ったままキャプチャし続け、エラー表示も出ない。try/catchで捕捉して`onClose`に落とすよう修正
 - [x] **3. メッセージプロトコルに`WS_RECONNECTING`を追加**
   - [x] `lib/messaging/protocol.ts`の判別可能なユニオン型に追加し、ヘッダコメントの方向表にも追記
 - [x] **4. オフスクリーンドキュメントの配線**
