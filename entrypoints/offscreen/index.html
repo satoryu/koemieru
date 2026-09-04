@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Koemieru offscreen document</title>
+  </head>
+  <body>
+    <!-- No UI: this document exists only to host the tab-audio capture and
+         OpenAI Realtime pipeline, which need DOM/Web Audio APIs that the
+         background service worker doesn't have. -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
