@@ -56,6 +56,7 @@ UIの状態（`idle | active`）を保持し、文字起こしの状態を描画
 5. `wss://api.openai.com/v1/realtime?model=<model>`へ、サブプロトコル`["realtime", "openai-insecure-api-key." + apiKey]`でWebSocket接続。文字起こしセッションの設定を送信した後、`input_audio_buffer.append`でチャンクをストリーミングする。
 6. `conversation.item.input_audio_transcription.delta`/`...completed`イベントを`TRANSCRIPT_DELTA`/`TRANSCRIPT_FINAL`のブロードキャストにルーティングする（正確なイベント名は実装直前にOpenAIの公式ドキュメントで再検証する）。
 7. 自動再接続は行わない：`onclose`/`onerror` → `WS_CLOSED`/`WS_ERROR`、リソースを完全にクリーンアップし、明確なエラーをユーザーに表示する。
+   - **追記（Issue [#2](https://github.com/satoryu/koemieru/issues/2)で解消）**: 実際のZoom講演で使用したところ、60分でOpenAI Realtime APIのセッション時間上限に達し文字起こしが停止した。`lib/openai/reconnectingSession.ts`を追加し、予期しない切断時は音声パイプラインを維持したままWebSocketだけを自動で張り直すようにした。設計は[docs/2-auto-reconnect/design.md](../2-auto-reconnect/design.md)を参照。
 
 ### 共有`lib/`モジュール
 

@@ -201,6 +201,17 @@ browser.runtime.onMessage.addListener((message) => {
       setStatus('Capturing tab audio… transcribing…');
       break;
 
+    case 'WS_RECONNECTING':
+      // The capture is still running — only the OpenAI connection is being
+      // rebuilt, so Stop stays available and the transcript is left intact.
+      setUiState('active');
+      setStatus(
+        `Connection lost — reconnecting (${message.attempt}/${message.maxAttempts})…${
+          message.reason ? ` ${message.reason}` : ''
+        }`,
+      );
+      break;
+
     case 'WS_CLOSED':
       setUiState('idle');
       setStatus(

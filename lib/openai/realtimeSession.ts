@@ -107,8 +107,14 @@ export interface RealtimeSessionHandlers {
    * to a transport-level WebSocket error) — e.g. invalid config, quota
    * exhausted. Usually followed shortly by onClose, whose CloseEvent.reason
    * is typically empty (a web-platform restriction), so this is the only
-   * reliable way to get a human-readable reason for a connection drop. */
-  onServerError?: (message: string) => void;
+   * reliable way to get a human-readable reason for a connection drop.
+   *
+   * `code`/`errorType` come straight from the event's `error` object and are
+   * what lib/openai/reconnectingSession.ts checks to decide whether
+   * reconnecting could possibly help (an invalid key or an exhausted balance
+   * never recovers on retry). The message is for humans only — don't
+   * pattern-match on it. */
+  onServerError?: (message: string, code?: string, errorType?: string) => void;
   onClose?: (code: number, reason: string) => void;
 }
 
@@ -179,7 +185,11 @@ export function connectRealtimeSession(
       handlers.onFinal?.(parsed.item_id, parsed.transcript);
     } else if (parsed.type === 'error') {
       console.error('[realtimeSession] server-sent error event', parsed);
-      handlers.onServerError?.(parsed.error?.message ?? 'Unknown error from OpenAI.');
+      handlers.onServerError?.(
+        parsed.error?.message ?? 'Unknown error from OpenAI.',
+        parsed.error?.code,
+        parsed.error?.type,
+      );
     }
     // Other event types (session.created, session.updated, input audio
     // buffer speech_started/stopped, etc.) are intentionally not treated

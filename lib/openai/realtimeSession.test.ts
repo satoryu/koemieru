@@ -165,7 +165,10 @@ describe('connectRealtimeSession', () => {
     expect(onFinal).not.toHaveBeenCalled();
   });
 
-  it('routes a server-sent {type: "error"} event to onServerError with its message', () => {
+  it('routes a server-sent {type: "error"} event to onServerError with its message, code and type', () => {
+    // The code/type are what lib/openai/reconnectingSession.ts uses to decide
+    // whether reconnecting could possibly help — the message alone isn't
+    // something to pattern-match on.
     const fakeWs = createFakeWebSocket();
     const onServerError = vi.fn();
     connectRealtimeSession('sk-test', { onServerError }, () => fakeWs);
@@ -177,7 +180,11 @@ describe('connectRealtimeSession', () => {
       }),
     });
 
-    expect(onServerError).toHaveBeenCalledWith('No credits.');
+    expect(onServerError).toHaveBeenCalledWith(
+      'No credits.',
+      'credit_balance_exhausted',
+      'insufficient_quota',
+    );
   });
 
   it('falls back to a generic message when a server error event has none', () => {
@@ -187,7 +194,7 @@ describe('connectRealtimeSession', () => {
 
     fakeWs.onmessage?.({ data: JSON.stringify({ type: 'error' }) });
 
-    expect(onServerError).toHaveBeenCalledWith('Unknown error from OpenAI.');
+    expect(onServerError).toHaveBeenCalledWith('Unknown error from OpenAI.', undefined, undefined);
   });
 
   it('forwards close events with code and reason', () => {
